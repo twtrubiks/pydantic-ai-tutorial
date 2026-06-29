@@ -6,6 +6,12 @@ ModelRetry 重試機制範例
 2. ModelRetry 引導 AI 自我修正
 3. 不完整輸入的智能處理（如：兩個字找三個字）
 4. 使用限制防止無限重試
+5. 透過 result.all_messages() 觀察自我修正軌跡（print_retry_trace）
+
+三個場景：
+- 場景 1：查不存在用戶 → 工具回傳 None，不觸發重試（對照組）
+- 場景 2：兩個字找三個字 → ModelRetry 引導 AI 修正輸入後重試
+- 場景 3：不穩定 API → ModelRetry 處理暫時性失敗，自動重試直到成功
 
 文檔參考：https://ai.pydantic.dev/agents/#retries
 """
@@ -17,7 +23,8 @@ from dotenv import load_dotenv
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ModelRetry
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.messages import RetryPromptPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.github import GitHubProvider
 from pydantic_ai.usage import UsageLimits
 
@@ -79,7 +86,7 @@ GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
 
 # GitHub Models 使用前綴格式的模型名稱
 model_name = "gpt-4o-mini"
-model = OpenAIModel(
+model = OpenAIChatModel(
     model_name,
     provider=GitHubProvider(api_key=GITHUB_API_KEY),
 )
@@ -158,37 +165,64 @@ def validate_external_api(ctx: RunContext[UserQueryDependencies]) -> bool:
 
     return True
 
+# ========== 觀察工具 ==========
+
+def print_result(result):
+    """印出查詢結果"""
+    print(f"   姓名：{result.output.name}")
+    print(f"   Email：{result.output.email}")
+    print(f"   年齡：{result.output.age}")
+    print(f"   訊息：{result.output.message}")
+
+def print_retry_trace(result):
+    """印出完整對話軌跡，觀察 ModelRetry 的自我修正過程"""
+    print("\n🔬 ModelRetry 自我修正軌跡：")
+    tool_calls = 0
+    for msg in result.all_messages():
+        for part in msg.parts:
+            if isinstance(part, ToolCallPart):
+                tool_calls += 1
+                print(f"  [{tool_calls}] 🛠️  AI 呼叫工具 {part.tool_name}(args={part.args})")
+            elif isinstance(part, RetryPromptPart):
+                print(f"      ↩️  收到重試提示：{part.content}")
+            elif isinstance(part, ToolReturnPart):
+                print(f"      ✅ 工具回傳：{part.content}")
+
+    # 證據：同一個工具被呼叫超過一次，代表 AI 收到回饋後改了參數重試
+    print(f"\n  📊 工具總共被呼叫 {tool_calls} 次", end="")
+    print("（> 1 次 ⇒ 發生了自我修正/重試）" if tool_calls > 1 else "（沒有觸發重試）")
+
 # ========== 測試函數 ==========
 
 async def test_retry_scenarios():
-    """測試重試機制"""
+    """測試重試機制（三個場景）"""
     print("\n🛡️ Pydantic AI ModelRetry 重試機制展示")
     print("=" * 60)
 
     # 建立依賴
     deps = UserQueryDependencies(database=UserDatabase())
 
-    # 場景 1：查詢不存在的用戶（直接返回不存在）
-    # print("\n📌 場景 1：查詢完全不存在的用戶")
-    # print("-" * 40)
+    # 場景 1：查詢不存在的用戶（工具直接返回 None，不觸發重試）
+    print("\n\n📌 場景 1：查詢完全不存在的用戶")
+    print("-" * 40)
 
-    # try:
-    #     result = await user_agent.run(
-    #         "查詢用戶 '小明' 的資料",
-    #         deps=deps,
-    #         usage_limits=UsageLimits(request_limit=10)
-    #     )
+    try:
+        result = await user_agent.run(
+            "查詢用戶 '小明' 的資料",
+            deps=deps,
+            usage_limits=UsageLimits(request_limit=10)
+        )
 
-    #     print("\n✅ 查詢完成！")
-    #     print(f"   姓名：{result.output.name}")
-    #     print(f"   Email：{result.output.email}")
-    #     print(f"   年齡：{result.output.age}")
-    #     print(f"   訊息：{result.output.message}")
+        print("\n✅ 查詢完成！")
+        print_result(result)
 
-    # except Exception as e:
-    #     print(f"❌ 查詢失敗：{e}")
+        # 對照組：沒有觸發重試，工具只會被呼叫一次
+        print_retry_trace(result)
 
-    # 場景 2：不完整姓名查詢（兩個字找三個字，觸發 ModelRetry 學習）
+    except Exception as e:
+        print(f"❌ 查詢失敗：{e}")
+
+    # 場景 2：不完整姓名查詢（兩個字找三個字，觸發 ModelRetry 修正輸入）
     print("\n\n📌 場景 2：不完整姓名查詢（兩個字 → 三個字）")
     print("-" * 40)
 
@@ -200,36 +234,36 @@ async def test_retry_scenarios():
         )
 
         print("\n✅ 查詢成功！")
-        print(f"   姓名：{result.output.name}")
-        print(f"   Email：{result.output.email}")
-        print(f"   年齡：{result.output.age}")
-        print(f"   訊息：{result.output.message}")
+        print_result(result)
+
+        # 印出對話軌跡，觀察「兩個字 → 三個字」的自我修正
+        print_retry_trace(result)
 
     except Exception as e:
         print(f"❌ 查詢失敗：{e}")
 
-    # 場景 3：API 服務不穩定（需要多次重試）
-    # print("\n\n📌 場景 3：調用不穩定的外部 API")
-    # print("-" * 40)
+    # 場景 3：API 服務不穩定（暫時性失敗，自動重試直到成功）
+    print("\n\n📌 場景 3：調用不穩定的外部 API")
+    print("-" * 40)
 
-    # # 重置 API 計數器
-    # deps.database.api_call_count = 0
+    # 重置 API 計數器
+    deps.database.api_call_count = 0
 
-    # try:
-    #     result = await user_agent.run(
-    #         "查詢張三的資料並驗證外部服務",
-    #         deps=deps,
-    #         usage_limits=UsageLimits(request_limit=10)
-    #     )
+    try:
+        result = await user_agent.run(
+            "查詢張三的資料並驗證外部服務",
+            deps=deps,
+            usage_limits=UsageLimits(request_limit=10)
+        )
 
-    #     print("\n✅ 查詢成功！")
-    #     print(f"   姓名：{result.output.name}")
-    #     print(f"   Email：{result.output.email}")
-    #     print(f"   年齡：{result.output.age}")
-    #     print(f"   訊息：{result.output.message}")
+        print("\n✅ 查詢成功！")
+        print_result(result)
 
-    # except Exception as e:
-    #     print(f"❌ 查詢失敗：{e}")
+        # 軌跡會看到 validate_external_api 被呼叫多次（前兩次失敗、第三次成功）
+        print_retry_trace(result)
+
+    except Exception as e:
+        print(f"❌ 查詢失敗：{e}")
 
 def explain_retry_mechanism():
     """說明重試機制"""
@@ -246,7 +280,7 @@ def explain_retry_mechanism():
     print("   • Agent 層級：Agent(retries=2) - 全局重試次數")
 
     print("\n3. 本範例展示的場景：")
-    print("   • 場景 1：查詢不存在的用戶 → 直接返回不存在")
+    print("   • 場景 1：查詢不存在的用戶 → 直接返回不存在（對照組，不重試）")
     print("   • 場景 2：兩個字找三個字 → ModelRetry 引導 AI 學習完整姓名")
     print("   • 場景 3：API 失敗 → 自動重試直到成功")
 
@@ -255,6 +289,11 @@ def explain_retry_mechanism():
     print("   • 設定合理的重試次數（通常 2-3 次）")
     print("   • 使用 UsageLimits 防止無限重試")
     print("   • 智能處理不完整輸入（如兩個字補全為三個字）")
+
+    print("\n5. 觀察自我修正：")
+    print("   • print_retry_trace() 走訪 result.all_messages()")
+    print("   • 看 ToolCallPart / RetryPromptPart / ToolReturnPart")
+    print("   • 工具被呼叫 > 1 次 ⇒ 證明真的發生了重試/自我修正")
 
 # ========== 主程式 ==========
 

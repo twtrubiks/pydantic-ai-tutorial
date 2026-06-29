@@ -379,7 +379,7 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 
 **核心做法**：
 
-**延續對話**：`agent.run(prompt, message_history=previous_messages)`，傳入歷史後就不會重新生成系統提示（假設歷史裡已含）
+**延續對話**：`agent.run(prompt, message_history=previous_messages)`，傳入歷史後,系統提示沿用歷史裡那份、不重新生成
 
 **取出訊息**：`result.all_messages()` 取完整歷史（含先前所有 run）；`result.new_messages()` 只取本輪新增
 

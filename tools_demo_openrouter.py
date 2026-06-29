@@ -27,18 +27,8 @@ load_dotenv()
 # 設置 OpenRouter API Key
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-"""
-Mistral AI (特別是 Mixtral 系列):
-
-優勢：Mistral 的開源模型（如 Mixtral 8x7B）以其高效率和性能著稱。
-
-透過特定的提示詞 (Prompt) 格式，它們也能夠可靠地執行 Function Calling，是兼顧性能與本地部署的絕佳選擇。
-"""
-
-# model_name = "mistralai/mistral-small-3.1-24b-instruct:free" # 1  2025 年 3 月 6 日 發布。
-# model_name = "mistralai/devstral-small-2505:free" # 2  2025 年 5 月 21 日 發布。
-
-model_name = "mistralai/mistral-small-3.1-24b-instruct:free"
+model_name = "google/gemma-4-31b-it:free"
+# model_name = "openai/gpt-oss-20b:free"
 
 # 檢查 API Key
 if not OPENROUTER_API_KEY:
