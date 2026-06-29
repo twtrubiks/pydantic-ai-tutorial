@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.github import GitHubProvider
 
 # 載入 .env 檔案中的環境變數
@@ -61,7 +61,7 @@ GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
 model_name = "gpt-4o-mini"
 
 # 4. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
-model = OpenAIModel(
+model = OpenAIChatModel(
     model_name,
     provider=GitHubProvider(api_key=GITHUB_API_KEY),
 )
@@ -144,11 +144,11 @@ async def main():
         print(f"  {i}. {type(message).__name__}: {str(message)[:500]}...")
 
     # 顯示使用統計
-    usage = result.usage()
+    usage = result.usage
     print("\n📊 使用統計:")
     print(f"   請求次數: {usage.requests}")
-    print(f"   輸入 tokens: {usage.request_tokens}")
-    print(f"   輸出 tokens: {usage.response_tokens}")
+    print(f"   輸入 tokens: {usage.input_tokens}")
+    print(f"   輸出 tokens: {usage.output_tokens}")
     print(f"   總計 tokens: {usage.total_tokens}")
 
     print("\n" + "=" * 50)

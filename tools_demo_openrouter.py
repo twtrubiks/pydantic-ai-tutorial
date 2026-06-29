@@ -13,19 +13,19 @@ OpenRouter 文檔：https://openrouter.ai/docs
 Pydantic AI 文檔：https://ai.pydantic.dev/tools/
 """
 
-import random
 import asyncio
 import os
-from dotenv import load_dotenv
+import random
 
+from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
 
 # 設置 OpenRouter API Key
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 """
 Mistral AI (特別是 Mixtral 系列):
@@ -49,11 +49,11 @@ if not OPENROUTER_API_KEY:
     exit(1)
 
 # 使用 OpenAI 格式，但需要設置環境變數
-os.environ['OPENAI_API_KEY'] = OPENROUTER_API_KEY
-os.environ['OPENAI_BASE_URL'] = "https://openrouter.ai/api/v1"
+os.environ["OPENAI_API_KEY"] = OPENROUTER_API_KEY
+os.environ["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
 
 # 1. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
-model = OpenAIModel(model_name)
+model = OpenAIChatModel(model_name)
 
 print(f"🚀 使用 OpenRouter 模型：{model_name}")
 print("📡 API 端點：https://openrouter.ai/api/v1")
@@ -77,6 +77,7 @@ dice_agent = Agent(
 
 # ========== 3. 工具定義 ==========
 
+
 @dice_agent.tool_plain  # 無上下文工具：純函數，不需要訪問 RunContext
 def roll_dice() -> str:
     """擲一個六面骰子並返回結果"""
@@ -84,12 +85,14 @@ def roll_dice() -> str:
     print(f"🎲 骰子結果: {result}")  # 用於觀察工具執行
     return str(result)
 
+
 @dice_agent.tool  # 有上下文工具：可以訪問 RunContext 獲取依賴和其他資訊
 def get_player_name(ctx: RunContext[str]) -> str:
     """獲取當前玩家的姓名"""
     player_name = ctx.deps
     print(f"👤 玩家姓名: {player_name}")  # 用於觀察工具執行
     return player_name
+
 
 @dice_agent.tool  # 帶參數的上下文工具
 def check_guess(ctx: RunContext[str], guess: int, actual: int) -> str:
@@ -103,6 +106,7 @@ def check_guess(ctx: RunContext[str], guess: int, actual: int) -> str:
     else:
         return "差得有點遠！"
 
+
 @dice_agent.tool_plain
 def get_game_rules() -> str:
     """獲取遊戲規則"""
@@ -113,14 +117,16 @@ def get_game_rules() -> str:
         "3. 猜對了就贏，猜錯了也不要氣餒！"
     )
 
+
 # ========== 4. 遊戲執行函數 ==========
+
 
 async def play_dice_game(player_name: str, guess_text: str):
     """執行一局骰子遊戲"""
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"🎮 玩家: {player_name}")
     print(f"💭 猜測: {guess_text}")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
     # 5. 執行 Agent：AI 會自動決定使用哪些工具
     result = await dice_agent.run(guess_text, deps=player_name)
@@ -133,11 +139,12 @@ async def play_dice_game(player_name: str, guess_text: str):
         print(f"  {i}. {type(message).__name__}: {str(message)[:100]}...")
 
     print("\n📈 使用統計:")
-    print(f"  • 輸入 token: {result.usage().request_tokens if result.usage() else 'N/A'}")
-    print(f"  • 輸出 token: {result.usage().response_tokens if result.usage() else 'N/A'}")
-    print(f"  • 總計 token: {result.usage().total_tokens if result.usage() else 'N/A'}")
+    print(f"  • 輸入 token: {result.usage.input_tokens if result.usage else 'N/A'}")
+    print(f"  • 輸出 token: {result.usage.output_tokens if result.usage else 'N/A'}")
+    print(f"  • 總計 token: {result.usage.total_tokens if result.usage else 'N/A'}")
 
     return result
+
 
 async def demonstrate_tools():
     """展示不同的工具使用情境"""
@@ -146,10 +153,10 @@ async def demonstrate_tools():
     print("=" * 60)
 
     # 測試案例 1: 基本遊戲
-    await play_dice_game("小明", "我猜是 2")
+    # await play_dice_game("小明", "我猜是 2")
 
     # 測試案例 2: 詢問規則
-    # await play_dice_game("小華", "這個遊戲怎麼玩？")
+    await play_dice_game("小華", "這個遊戲怎麼玩？")
 
     # 測試案例 3: 多次猜測
     # await play_dice_game("小美", "我想玩兩次，第一次猜 1，第二次猜 6")
@@ -157,12 +164,13 @@ async def demonstrate_tools():
     # 測試案例 4: 非數字猜測
     # await play_dice_game("小李", "我猜是最大的數字")
 
+
 def analyze_tools():
     """分析工具的設計模式"""
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🔍 工具分析")
-    print("="*60)
+    print("=" * 60)
 
     print("\n1. @agent.tool_plain - 無上下文工具:")
     print("   ✅ roll_dice() - 擲骰子，不需要玩家資訊")
@@ -186,7 +194,9 @@ def analyze_tools():
     print("   🔄 依序或並行調用工具")
     print("   💬 整合結果生成回應")
 
+
 # ========== 6. 主程式 ==========
+
 
 async def main():
     """主程式入口"""
@@ -197,7 +207,7 @@ async def main():
         # 分析工具設計
         analyze_tools()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("✨ 範例完成！")
         print("💡 觀察重點:")
         print("   - AI 如何自主選擇使用哪些工具")
@@ -213,6 +223,7 @@ async def main():
         print("   - 網路連接問題")
         print("   - 模型暫時不可用")
         print("💡 請檢查 OPENROUTER_API_KEY 是否正確設置在 .env 檔案中")
+
 
 if __name__ == "__main__":
     # 執行異步主程式

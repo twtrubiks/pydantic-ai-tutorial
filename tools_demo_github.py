@@ -19,7 +19,7 @@ import os
 from dotenv import load_dotenv
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.github import GitHubProvider
 
 # 載入 .env 檔案中的環境變數
@@ -42,7 +42,7 @@ if not GITHUB_API_KEY:
     exit(1)
 
 # 1. 建立 AI 模型（使用 GitHub Models）
-model = OpenAIModel(
+model = OpenAIChatModel(
     model_name,
     provider=GitHubProvider(api_key=GITHUB_API_KEY),
 )
@@ -125,9 +125,9 @@ async def play_dice_game(player_name: str, guess_text: str):
         print(f"  {i}. {type(message).__name__}: {str(message)[:100]}...")
 
     print("\n📈 使用統計:")
-    print(f"  • 輸入 token: {result.usage().request_tokens if result.usage() else 'N/A'}")
-    print(f"  • 輸出 token: {result.usage().response_tokens if result.usage() else 'N/A'}")
-    print(f"  • 總計 token: {result.usage().total_tokens if result.usage() else 'N/A'}")
+    print(f"  • 輸入 token: {result.usage.input_tokens if result.usage else 'N/A'}")
+    print(f"  • 輸出 token: {result.usage.output_tokens if result.usage else 'N/A'}")
+    print(f"  • 總計 token: {result.usage.total_tokens if result.usage else 'N/A'}")
 
     return result
 

@@ -45,7 +45,7 @@ class ReviewResult(BaseModel):
 
 
 # === 初始化模型 ===
-model = GoogleModel('gemini-2.0-flash-exp')
+model = GoogleModel('gemini-3-flash-preview')
 
 
 # === 研究代理 (展示工具使用) ===

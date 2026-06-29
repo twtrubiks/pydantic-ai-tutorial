@@ -22,7 +22,7 @@ from pydantic_ai.models.google import GoogleModel
 load_dotenv()
 
 # 1. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
-model = GoogleModel('gemini-2.0-flash-exp')
+model = GoogleModel('gemini-3-flash-preview')
 
 # 2. 建立 PydanticAI Agent 並定義依賴類型
 # deps_type=str 表示依賴類型是字串（玩家姓名）

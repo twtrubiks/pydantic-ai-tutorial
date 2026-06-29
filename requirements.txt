@@ -1,0 +1,14 @@
+# Pydantic AI v2
+# 預設安裝已包含 openai / anthropic / google 等 provider，
+# GitHub provider（GitHubProvider）走 OpenAI 相容介面，皆無需額外 extras。
+pydantic-ai>=2,<3
+
+# 讀取 .env 中的 API 金鑰
+python-dotenv>=1.0
+
+# 範例直接使用 BaseModel / Field（pydantic-ai 亦會帶入，列出以表明直接相依）
+pydantic>=2
+
+# 串流範例（streaming_demo.py）直接使用 rich 即時渲染
+# （pydantic-ai 的 cli extra 已會帶入，列出以表明直接相依）
+rich>=13

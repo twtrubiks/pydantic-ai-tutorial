@@ -1,5 +1,9 @@
 # Pydantic AI：讓 LLM 應用開發像 FastAPI 一樣簡單
 
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![Pydantic AI](https://img.shields.io/badge/Pydantic_AI-2.0-E92063.svg)](https://ai.pydantic.dev/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-2.x-E92063.svg)](https://docs.pydantic.dev/)
+
 * [Youtube Tutorial - Pydantic AI - AI 開發的 FastAPI 時刻！告別混亂解析 & 燒錢測試](https://youtu.be/mEwA5DeSFqU)
 
 - **官方文檔**：[https://ai.pydantic.dev/](https://ai.pydantic.dev/)
@@ -22,6 +26,36 @@
 **Pydantic AI** 的誕生就是為了解決這些問題，它的設計理念是：
 
 **「讓 AI 應用開發像使用 FastAPI 一樣簡單、類型安全、生產就緒」**。
+
+---
+
+## 安裝
+
+本專案使用 **Pydantic AI v2**
+
+```bash
+# 安裝相依套件
+pip install -r requirements.txt
+```
+
+---
+
+## 環境設定
+
+範例透過 `python-dotenv` 讀取 `.env` 中的金鑰。請先複製範本再填入你自己的金鑰：
+
+```bash
+cp .env.example .env
+```
+
+接著編輯 `.env`，依你要執行的範例填入對應的金鑰即可（不必全部填寫）：
+
+| 變數 | 用途 | 取得位置 |
+|------|------|----------|
+| `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
+| `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
+| `GITHUB_API_KEY` | GitHub Models（`tools_demo_github.py`、`bank_support_agent_demo.py`、`message_history_demo.py` 等） | <https://github.com/settings/tokens> |
+| `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`） | <https://build.nvidia.com/> |
 
 ---
 
@@ -77,6 +111,36 @@ except:
 
 ---
 
+## 結構化輸出的三種模式：Output Mode
+
+上一個範例用 `output_type=FilmCriticReview` 就拿到結構化結果，但它背後其實有「怎麼讓模型吐出 JSON」的選擇。Pydantic AI 提供三種 output mode，差別在 schema 走哪條路、以及對端點的要求。
+
+參考 [output_mode_demo.py](output_mode_demo.py)（使用 NVIDIA NIM）
+
+**三種模式**：
+
+**ToolOutput（預設）**：用 tool calling 回傳結構化資料，相容性最廣（前面範例就是它）
+
+**NativeOutput**：schema 走 API 頂層 `response_format` / JSON schema（**不進 prompt**），只有端點支援原生結構化輸出時才會被「強制」
+
+**PromptedOutput**：把 JSON schema 塞進 prompt，請模型「自己」回 JSON，**任何模型都能用**，但純靠提示約束、可靠度略低
+
+**核心做法**：
+
+**指定模式**：`output_type=NativeOutput(Recipe)` 或 `output_type=PromptedOutput(Recipe)`，不指定則為預設 ToolOutput
+
+**同一結構、兩種模式**：範例用同一個 `Recipe` 資料結構分別跑 NativeOutput 與 PromptedOutput，證明兩者都能得到同樣型別的結構化結果
+
+**都有安全網**：兩種模式模型「都可能不遵守」（Native 端點不支援會被忽略、Prompted 模型可能回非預期格式），但不論哪種，pydantic_ai 最後都會用 Pydantic 驗證回傳值，不合就重試，重試用完才拋 `UnexpectedModelBehavior`——不會默默把壞資料丟給你
+
+**怎麼選**：
+
+- 端點支援原生結構化輸出（`response_format` json_schema）→ 優先 **NativeOutput**
+- 端點不支援 tool / 原生 JSON、或想最大相容 → **PromptedOutput**
+- 需要多工具混合呼叫的流程 → 維持預設 **ToolOutput**
+
+---
+
 ## 工具的威力：骰子遊戲範例
 
 傳統的 Function Calling 實現起來很繁瑣，但 Pydantic AI 讓它變得優雅：
@@ -93,7 +157,7 @@ except:
 
 **OpenAI 模型**：Function Calling 原生支援，表現最穩定（推薦）
 
-**Google Gemini**：`gemini-2.0-flash-exp` 工具調用表現不夠穩定
+**Google Gemini**：`gemini-3-flash-preview` 工具調用表現不夠穩定
 
 **免費模型**：OpenRouter 不確定是否為免費額度, 導致對話都只有一次就結束
 
@@ -149,6 +213,36 @@ except:
 
 **模擬 API 失敗**：`validate_api_service()` 前兩次故意失敗，第三次成功，展示自動重試直到成功的機制
 
+**自我修正軌跡（`print_retry_trace()`）**：走訪 `result.all_messages()` 把 `ToolCallPart`／`RetryPromptPart`／`ToolReturnPart` 印出來，用「工具被呼叫 > 1 次」證明 AI 真的收到回饋後重試；場景 1（不存在用戶）只呼叫 1 次，剛好是「沒有觸發重試」的對照。
+
+---
+
+## 輸出驗證層：output_validator
+
+`ModelRetry` 不只能用在工具層，也能用在「最終輸出」這一層。`@agent.output_validator` 會在 AI 組裝出**結構化輸出之後**再做一次語意驗證，專門處理 Pydantic `Field` 驗證做不到的「跨欄位邏輯」。
+
+參考 [output_validator_demo.py](output_validator_demo.py)（使用 NVIDIA NIM）
+
+**與工具層 ModelRetry 的差異**：
+
+**工具層**：驗證單一工具的輸入／執行（如 `error_handling_demo.py` 的 `@tool(retries=2)`）
+
+**輸出層**：驗證 AI 組裝出來的最終結果，做跨欄位一致性檢查
+
+**範例的兩條驗證規則**：
+
+**規則 1（自相矛盾）**：輸出有 `email` 卻沒有 `name` → `raise ModelRetry` 要求補上完整姓名
+
+**規則 2（跨欄位一致）**：查到用戶時，`message` 必須包含其 `email` → 否則 `raise ModelRetry` 引導 AI 把 email 寫進 message
+
+**運作重點**：
+
+- 驗證不通過時 `raise ModelRetry`，AI 會帶著提示重新生成「整包輸出」，最多重試次數由 `Agent(..., retries=2)` 控制
+- 若模型第一次輸出就符合規則，validator 直接放行（安全閘的正確行為，不會強制重試）
+- 可透過 `result.all_messages()` 觀察 `RetryPromptPart`，看見輸出層自我修正的完整軌跡
+
+**NVIDIA NIM 接入方式**：透過 `OpenAIChatModel` + `OpenAIProvider(base_url="https://integrate.api.nvidia.com/v1", api_key=...)`，以 OpenAI 相容介面呼叫 Nemotron 等模型。
+
 ---
 
 ## 架構擴展：多代理協作
@@ -174,6 +268,128 @@ except:
 - **異步批次處理**：使用 `asyncio.gather()` 平行處理多個主題，提升效能
 - **自動錯誤處理**：每個階段都有 try-catch 區塊，確保部分失敗不影響整體流程
 - **類型安全**：所有資料傳遞都有明確的類型定義，減少執行時錯誤
+
+---
+
+## 連接外部工具：MCP Client（Odoo）
+
+Pydantic AI 可以作為 **MCP Client**，把「已經獨立跑起來」的 MCP server 當成一組工具掛上 Agent。server 暴露的工具會自動變成 LLM 可呼叫的工具，Agent 完全不需要知道背後是 Odoo / XML-RPC。
+
+參考 [mcp_client_demo.py](mcp_client_demo.py)（使用 NVIDIA NIM；連線 Odoo MCP server）
+
+**核心做法**：
+
+**掛上 MCP server**：用 `MCPToolset("http://localhost:8000/mcp")` 連到 Streamable HTTP 端點，再放進 `Agent(model, toolsets=[odoo_mcp])`
+
+**自動開關連線**：所有 `agent.run(...)` 都要在 `async with odoo_agent:` 區塊內執行，進入時開啟、離開時自動關閉 MCP 連線
+
+**多來源混用**：本地函式工具（`tools=[...]`／`@agent.tool`）與多個 MCP server（`toolsets=[a_mcp, b_mcp]`）會合併成同一份工具清單；撞名用 `.prefixed("odoo")`，工具太多用 `.filtered()`／`.prepared()` 收斂
+
+**呼叫軌跡**：透過 `result.all_messages()` 觀察 `ToolCallPart`／`ToolReturnPart`，看 LLM 實際呼叫了哪些 MCP 工具
+
+> **執行前提**：本範例只是 client 端，需先自行把 Odoo MCP server 用 HTTP transport 跑起來（server 來源：<https://github.com/twtrubiks/odoo19-mcp-server>）。Odoo 連線資訊設在 server 端，client 端只需 `ODOO_MCP_URL` 端點（預設 `http://localhost:8000/mcp`）。
+
+---
+
+## 安全護欄：Toolset 過濾（filtered）
+
+把工具過濾當成「安全護欄」——用 `filtered()` 從完整工具集衍生出「唯讀版」，危險的寫入工具直接不會出現在送給模型的工具清單裡。模型不是被勸退，而是「無從呼叫」，比在 system prompt 叮嚀「不要刪資料」可靠得多。
+
+參考 [toolset_filter_demo.py](toolset_filter_demo.py)（使用 NVIDIA NIM）
+
+**核心做法**：
+
+**衍生受限工具集**：`employee_toolset.filtered(lambda ctx, tool_def: (tool_def.metadata or {}).get("access") == "read")`，只放行唯讀工具
+
+**用 metadata 標記**：`@toolset.tool(metadata={"access": "read"/"write"})` 標記工具屬性，過濾邏輯就不必硬編工具名稱
+
+**護欄在工具集層**：被擋掉的工具不會進入送給模型的清單，模型根本看不到、也就無從呼叫
+
+**驗證生效**：`await toolset.get_tools(ctx)` 印出模型「真正看得到」的工具——場景 A（完整工具集）看得到刪除工具、資料真的被刪；場景 B（filtered）看不到、資料安然無恙
+
+---
+
+## 省錢開關：Gemini Thinking 控制
+
+Gemini 3 系列預設會「思考」（thinking），思考會額外消耗 token、增加延遲。這個範例直接對比「高思考（HIGH）」與「最省思考（MINIMAL）」，用 token 數與耗時證明降低思考等級後更省、更快。
+
+參考 [gemini_thinking_demo.py](gemini_thinking_demo.py)
+
+**核心做法**：
+
+**省錢開關**：用 `GoogleModelSettings(google_thinking_config={"thinking_level": "MINIMAL"})` 把思考降到最低
+
+**思考等級**：`thinking_level` 由低到高為 `MINIMAL < LOW < MEDIUM < HIGH`，等級越高思考越多、越貴
+
+**思考摘要**：`include_thoughts=True` 會把思考內容一併回傳，方便在 `result.all_messages()` 軌跡裡看到 `ThinkingPart`
+
+**省錢證據**：透過 `result.usage.details["thoughts_tokens"]` 觀察思考 token 在 MINIMAL 時大幅下降，搭配耗時對比一目了然
+
+**模型差異**：本範例使用 `gemini-3-flash-preview`。Gemini 3 系列以 `thinking_level`（MINIMAL／LOW／MEDIUM／HIGH）控制思考強度，**無法完全關閉**思考（沒有 `budget=0`），MINIMAL 即為最省等級。若需要「完全關閉」思考，要改用 `gemini-2.5-flash` 搭配 `thinking_budget=0`。
+
+---
+
+## 語意向量：Embeddings 與相似度搜尋
+
+Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」，是語意搜尋、推薦、分群、RAG 的基礎。這個範例用 Pydantic AI 的 `Embedder` 把句子向量化，再用 cosine 相似度從候選句子裡找出與查詢語意最接近的。
+
+參考 [gemini_embedding_demo.py](gemini_embedding_demo.py)
+
+**核心做法**：
+
+**統一介面**：`Embedder(GoogleEmbeddingModel("gemini-embedding-2", provider=GoogleProvider(api_key=...)))`，換 provider 不用改呼叫方式
+
+**查詢 vs 內容**：`embed_query()` 給查詢、`embed_documents()` 給被檢索的內容；某些模型會分別最佳化，分開呼叫語意更準
+
+**取向量**：`result.embeddings[i]` 就是第 i 句的向量（一串 float）
+
+**調維度**：`EmbeddingSettings(dimensions=768)` 控制向量維度——越大越精細，索引也越大、越慢
+
+**相似度**：用 cosine 相似度（1 ≈ 語意相同、0 ≈ 不相關）排序，即得語意搜尋結果
+
+---
+
+## 即時體驗：串流輸出（Streaming）
+
+不必等模型「整段講完」才看到結果——串流讓第一個字一出來就能顯示，對長文、即時對話與進度感很有幫助。這個範例展示兩種串流：文字／Markdown 串流（打字機效果），以及結構化資料串流（一邊生成、一邊做部分驗證，表格即時長出來）。
+
+參考 [streaming_demo.py](streaming_demo.py)（使用 NVIDIA NIM）
+
+**核心做法**：
+
+**開啟串流**：`async with agent.run_stream(prompt) as result:`
+
+**累積輸出**：`result.stream_output()` 每次給「累積到目前」的完整輸出（文字或結構化）；`result.stream_output(debounce_by=0.01)` 控制畫面更新頻率
+
+**只取新增片段**：`result.stream_text(delta=True)` 只回傳「這次新增」的文字片段
+
+**部分驗證**：`output_type=list[Whale]`（TypedDict + `NotRequired`）讓結構化串流途中欄位可「先缺著」，取值用 `.get()` 並給預設值
+
+**小提醒**：`usage`（用量）要等串流結束才會是完整數字
+
+> 本範例用 `rich` 的 `Live` 即時渲染（pydantic-ai 的 cli extra 已帶入 rich，`requirements.txt` 亦明列）。
+
+---
+
+## 多輪對話：訊息歷史與記憶（Message History）
+
+預設每次 `agent.run()` 都是「全新對話」——模型不會記得上一輪講過什麼。要做出能連續聊天的應用，關鍵就是把先前的對話用 `message_history=` 餵回去。這個範例展示三件事：① 無記憶 vs 有記憶的對比、② 把對話序列化成 JSON 存檔、下次再讀回來接著聊（跨 session 持久化）、③ 用 History Processor 控制送出的訊息量來省 token。
+
+參考 [message_history_demo.py](message_history_demo.py)（使用 GitHub Models）
+
+**核心做法**：
+
+**延續對話**：`agent.run(prompt, message_history=previous_messages)`，傳入歷史後就不會重新生成系統提示（假設歷史裡已含）
+
+**取出訊息**：`result.all_messages()` 取完整歷史（含先前所有 run）；`result.new_messages()` 只取本輪新增
+
+**存檔／讀回**：`ModelMessagesTypeAdapter.dump_json(history)` 序列化成 JSON bytes，`ModelMessagesTypeAdapter.validate_json(data)` 還原，即可跨 session 接續對話
+
+**對話關聯**：同一段對話的多次 run 共享同一個 `result.conversation_id`，即使存檔讀回也不變，方便在 Logfire 等工具追蹤
+
+**省 token（V2 特性）**：`Agent(model, capabilities=[ProcessHistory(fn)])` 在每次送出前處理歷史；範例用「只保留最近 N 則」，避免 input token 隨對話無限膨脹（注意 V2 改用 `capabilities=`，V1 的 `history_processors=` 參數已移除）
+
+**小提醒**：裁切或摘要歷史時，要確保 tool call 與其 return 成對出現，否則模型可能報錯（純文字對話無此問題）
 
 ---
 
@@ -257,22 +473,24 @@ with agent.override(model=TestModel()):
 ```python
 # 字串格式：<provider>:<model>
 agent = Agent('openai:gpt-4o')
+# 注意：裸 openai: 前綴預設使用 Responses API；
+# 若要使用 Chat Completions，請改寫成 openai-chat:gpt-4o
 agent = Agent('anthropic:claude-3-5-sonnet-latest')
-agent = Agent('google:gemini-1.5-flash')
+agent = Agent('google:gemini-3-flash-preview')
 agent = Agent('groq:llama-3.3-70b-versatile')
 agent = Agent('mistral:mistral-large-latest')
 agent = Agent('bedrock:anthropic.claude-3-sonnet-20240229-v1:0')
 
 # 明確實例化（更多控制）
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-model = OpenAIModel('gpt-4o', provider=OpenAIProvider(api_key='...'))
+model = OpenAIChatModel('gpt-4o', provider=OpenAIProvider(api_key='...'))
 agent = Agent(model)
 
 # FallbackModel 自動切換
 from pydantic_ai.models.fallback import FallbackModel
 fallback = FallbackModel(
-    OpenAIModel('gpt-4o'),
+    OpenAIChatModel('gpt-4o'),
     AnthropicModel('claude-3-5-sonnet-latest')
 )
 agent = Agent(fallback)
@@ -323,7 +541,7 @@ agent = Agent(fallback)
 
 - 每次執行都需要 LLM 調用，成本隨使用量增長
 - 延遲通常 1-5 秒，無法達到毫秒級回應
-- 建議使用快取（`@lru_cache`）和更便宜的模型（如 `gemini-2.0-flash-exp`）
+- 建議使用快取（`@lru_cache`）和更便宜的模型（如 `gemini-3-flash-preview`）
 
 ### 技術限制
 

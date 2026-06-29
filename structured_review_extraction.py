@@ -6,13 +6,13 @@ PydanticAI 結構化資料提取範例
 """
 
 from dotenv import load_dotenv
-
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models.google import GoogleModel
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
+
 
 # 1. 定義結構化資料模型 (使用 Pydantic BaseModel)
 # 這是 PydanticAI 的核心特色：型別安全的資料結構
@@ -21,13 +21,14 @@ class FilmCriticReview(BaseModel):
     rating: int = Field(description="從 1 到 10 的評分", ge=1, le=10)
     critique: str = Field(description="一句話的簡短評論")
 
+
 # 2. 準備非結構化的原始文字（真實場景中可能來自用戶輸入、檔案等）
 unstructured_review = """
 我昨天看了駭客任務, 整體超酷的, 我給七點二分
 """
 
 # 3. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
-model = GoogleModel('gemini-2.0-flash-exp')
+model = GoogleModel("gemini-3-flash-preview")
 
 # 4. 建立 PydanticAI Agent，指定輸出格式
 # 這是 PydanticAI 的魔法：自動將 LLM 輸出轉換為 Pydantic 模型
