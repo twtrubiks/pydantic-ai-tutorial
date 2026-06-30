@@ -54,7 +54,7 @@ cp .env.example .env
 |------|------|----------|
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
-| `GITHUB_API_KEY` | GitHub Models（`tools_demo_github.py`、`bank_support_agent_demo.py`、`message_history_demo.py` 等） | <https://github.com/settings/tokens> |
+| `GITHUB_API_KEY` | GitHub Models（`tools_demo_github.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py` 等） | <https://github.com/settings/tokens> |
 | `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`） | <https://build.nvidia.com/> |
 
 ---
@@ -502,6 +502,36 @@ agent = Agent(fallback)
 - **模型無關**：支援 OpenAI、Anthropic、Google、Groq、Mistral、Bedrock、HuggingFace 等
 - **測試隔離**：使用 `Agent.override()` 和 pytest fixture 管理測試環境
 - **訊息追蹤**：`capture_run_messages()` 記錄完整對話過程
+
+---
+
+## 品質驗證：評估框架（Pydantic Evals）
+
+單元測試問的是「給定輸入，程式有沒有回傳正確的輸出？」——確定性、非對即錯。但 LLM 是機率性的，回答品質往往是「程度」問題，沒辦法用 `assert ==` 一刀切。Pydantic Evals 就是為此而生：把「測試案例 + 評分標準」組織成資料集，對 AI 系統跑一輪實驗並產出評分報告。它和上面的零成本測試互補——TestModel 驗證「程式流程」對不對，Evals 驗證「回答品質」好不好。
+
+參考 [evals_demo.py](evals_demo.py)（使用 GitHub Models）
+
+**核心做法**：
+
+**Case / Dataset**：用 `Case`（單一測試案例：`inputs`、`expected_output`、`metadata`）組成 `Dataset`（一整批案例），把測試集中管理
+
+**待評估的 Task**：被打分的對象就是一個普通的 pydantic-ai Agent；用 `async def answer_question(q)` 包起來交給 Evals 呼叫
+
+**三類評估器（Evaluator）互補**：
+
+- **IsInstance（內建）**：零成本的格式 / 型別檢查（輸出是不是 `str`）
+- **ContainsExpected（自訂）**：繼承 `Evaluator` 自己寫的零成本確定性檢查（輸出有沒有包含標準答案）
+- **LLMJudge**：用 LLM 當裁判，靠 `rubric` 評「切題、語氣」等主觀品質；`include_input=True` 讓裁判同時看到「問題」與「回答」
+
+**評估器的兩種層級**：資料集層級評估器對「每個」case 都跑；Case 層級評估器（`Case(..., evaluators=[...])`）只在該案例跑
+
+**為什麼開放題只能靠 LLMJudge**：事實題（如「台灣最高的山」）有標準答案，便宜的 `ContainsExpected` 就夠；開放題（如「寫一句歡迎詞」）沒有標準答案可比對，確定性檢查無能為力，只能用 LLMJudge 評主觀品質
+
+**跑實驗、出報告**：`dataset.evaluate_sync(task)` 對每個 case 執行 Task 再套用所有評估器，回傳的 report 用 `report.print()` 印出每個案例的輸入、輸出與各評估器分數；report 物件還可序列化存檔，或送進 Logfire 做視覺化與版本比較
+
+**會花幾次 LLM 呼叫**：每個 case 會打兩次 API——一次問 Agent 拿答案（Task）、一次給 LLMJudge 打分；`IsInstance`、`ContainsExpected` 是純程式檢查，不花 LLM。所以本範例一輪共 `3 case ×（1 Task + 1 Judge）= 6 次`。公式是「case 數 ×（1 + 用到幾個 LLM 評估器）」，疊越多 LLM 裁判、case 越多就越貴。
+
+> **安裝與裁判提醒**：`pydantic-evals` 需單獨安裝（已列入 `requirements.txt`）。
 
 ---
 

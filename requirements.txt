@@ -3,6 +3,9 @@
 # GitHub provider（GitHubProvider）走 OpenAI 相容介面，皆無需額外 extras。
 pydantic-ai>=2,<3
 
+# 評估框架範例（evals_demo.py）使用 Pydantic Evals，需單獨安裝（不隨 pydantic-ai 自動帶入）
+pydantic-evals>=2,<3
+
 # 讀取 .env 中的 API 金鑰
 python-dotenv>=1.0
 
