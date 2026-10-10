@@ -159,7 +159,7 @@ except:
 
 **Google Gemini**：`gemini-3-flash-preview` 工具調用表現不夠穩定
 
-**免費模型**：OpenRouter 不確定是否為免費額度, 導致對話都只有一次就結束
+**OpenRouter 免費模型**：變動頻繁，常見狀況有被上游限流（429）、改為付費（404）、只開放給特定應用（403）。範例目前使用 `cohere/north-mini-code:free`，失效時可到 <https://openrouter.ai/models> 篩選「免費 + 支援 tools」的模型替換
 
 **NVIDIA Nemotron**：呼叫無參數工具（如 `roll_dice()`）時會自己編參數，被參數驗證擋下後超過重試上限，所以 `tools_demo_claude.py` 和 `error_handling_demo.py` 改用 Claude
 

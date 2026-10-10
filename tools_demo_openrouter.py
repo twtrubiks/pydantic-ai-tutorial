@@ -19,7 +19,8 @@ import random
 
 from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
@@ -27,8 +28,10 @@ load_dotenv()
 # 設置 OpenRouter API Key
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-model_name = "google/gemma-4-31b-it:free"
-# model_name = "openai/gpt-oss-20b:free"
+# 免費模型常有變動（被上游限流、改為付費、限制使用場景），失效時可到
+# https://openrouter.ai/models 篩選「免費 + 支援 tools」的模型替換
+model_name = "cohere/north-mini-code:free"
+# model_name = "google/gemma-4-31b-it:free"  # 2026-10 實測常被上游限流（429）
 
 # 檢查 API Key
 if not OPENROUTER_API_KEY:
@@ -38,12 +41,10 @@ if not OPENROUTER_API_KEY:
     print("   2. 在 .env 檔案中添加：OPENROUTER_API_KEY=sk-or-v1-...")
     exit(1)
 
-# 使用 OpenAI 格式，但需要設置環境變數
-os.environ["OPENAI_API_KEY"] = OPENROUTER_API_KEY
-os.environ["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
-
 # 1. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
-model = OpenAIChatModel(model_name)
+# OpenRouterModel 走 OpenAI 相容介面，OpenRouterProvider 會帶入 OpenRouter 端點，
+# 不需要改寫 OPENAI_API_KEY / OPENAI_BASE_URL 這類全域環境變數
+model = OpenRouterModel(model_name, provider=OpenRouterProvider(api_key=OPENROUTER_API_KEY))
 
 print(f"🚀 使用 OpenRouter 模型：{model_name}")
 print("📡 API 端點：https://openrouter.ai/api/v1")
