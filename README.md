@@ -52,10 +52,10 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`tool_approval_demo.py`、`web_chat_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`claude_advisor_demo.py`、`tool_approval_demo.py`、`web_chat_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
-| `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`） | <https://build.nvidia.com/> |
+| `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`、`claude_advisor_demo.py` 主題 B） | <https://build.nvidia.com/> |
 
 ---
 
@@ -505,6 +505,71 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 **Skill 描述要寫清楚「什麼時候用」**：實測描述寫成「撰寫修正說明時使用」，Haiku 會直接用自己的格式寫；改成「撰寫修正說明前，一定要先載入這個 skill」才穩定載入。模型只看得到描述，描述就是觸發條件
 
 **安全性**：Coder 的 shell 沒有指令白名單，務必讓它在暫存目錄或 sandbox（Modal / E2B）裡跑。`LocalWorkspace` 只把 `PATH`、`HOME`、`LANG` 傳給 shell，不會把 API Key 交給模型執行的指令；不要用 `env=os.environ`
+
+---
+
+## Claude 專屬：Advisor 顧問模式（Haiku 做事、Opus 指點）
+
+便宜的模型當「執行者」負責查資料、算數、回覆，遇到關鍵判斷再請教更強的「顧問」模型。Anthropic 的 [advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)（beta）把這件事做在伺服器上：執行者呼叫一個叫 `advisor` 的工具，顧問讀完整段對話後給建議，同一次 API 請求內完成。
+
+參考 [claude_advisor_demo.py](claude_advisor_demo.py)（執行者 Claude Haiku 5.5、顧問 Claude Opus 5.5；主題 B 另需 NVIDIA_API_KEY 與 pydantic-ai-harness）
+
+**情境**：出貨排程助理。合約寫「2026-12-15 下單，隔天起算第 20 個工作天出貨」，休假日、補班日要用 `get_company_calendar(year)` 查。陷阱是 20 個工作天會跨年，只查 2026 年就會漏掉 2027 年的休假日。標準答案由程式另外計算，用來判斷模型答對沒有
+
+**一行掛上顧問**：
+
+```python
+from pydantic_ai.capabilities import NativeTool
+from pydantic_ai.native_tools import AdvisorTool
+
+agent = Agent(
+    'anthropic:claude-haiku-5-5',
+    capabilities=[NativeTool(AdvisorTool(model='claude-opus-5-5', max_tokens=2048))],
+)
+```
+
+beta header（`advisor-tool-2026-03-01`）由 Pydantic AI 自動加上。顧問必須至少和執行者一樣強；Haiku 5.5 的顧問可以選 Opus、Sonnet 5.5 等模型
+
+**實測（主題 A，三種組合各跑一次）**：
+
+| 組合 | 回答 | usage.cost | 顧問費（自己換算） | 實際合計 |
+|------|------|-----------:|------------------:|---------:|
+| Haiku 單獨 | ❌ 2027-01-11 | $0.0004 | — | $0.0004 |
+| Haiku + Opus 顧問 | ✅ 2027-01-15 | $0.0017 | $0.0719 | $0.0736 |
+| Opus 單獨 | ✅ 2027-01-15 | $0.0228 | — | $0.0228 |
+
+- Haiku 單獨在探測和正式執行共 5 次都答錯：只查 2026 年，或查了 2027 年卻數錯日期
+- 加了顧問後，Haiku 一開始先請教顧問，接著說「The advisor says to also check 2027」才去查 2027 年，最後再請教一次確認答案
+- **顧問模式反而比直接用 Opus 貴**：顧問每次都會讀完整段對話再思考（兩次合計輸入約 7,500、輸出約 2,000 token，用 Opus 價格計費）。這種短任務直接用 Opus 比較划算；顧問適合長任務，例如大部分步驟很機械、只有少數關鍵判斷要很準的 coding agent
+
+**帳單要自己算**：
+
+顧問的 token 不會算進 `usage.input_tokens` / `output_tokens`，`usage.cost` 也不包含顧問費。原因是顧問用的是另一個模型的價格，Pydantic AI 刻意不把它併進執行者的帳。顧問用量放在 `usage.details` 的 `advisor_iterations`、`advisor_input_tokens`、`advisor_output_tokens`，範例用 genai-prices 以 Opus 價格換算。只看 `usage.cost` 會以為「加了顧問幾乎不花錢」
+
+**看不到建議內容**：
+
+Opus / Sonnet 5.x 當顧問時，回傳的是加密的 `advisor_redacted_result`，只有執行者在伺服器上讀得到，程式拿不到明文；Opus 4.8 這類舊款顧問才回傳明文 `advisor_result`。在 Pydantic AI 裡，顧問呼叫是 `NativeToolCallPart`、回傳是 `NativeToolReturnPart`（`tool_name='advisor'`），回傳有時會出現在下一個 `ModelResponse` 開頭，要用 `tool_call_id` 配對
+
+**Haiku 容易忘記問**：
+
+官方提到 Haiku 當執行者常常不呼叫顧問，所以 instructions 要寫清楚時機（官方建議：動手之前、交付之前、卡關時）。範例寫「開始查資料、計算之前，先呼叫 advisor 確認做法；回覆客戶之前，再呼叫一次確認答案」，實測每次都會呼叫兩次
+
+**控制花費**：
+
+- `max_tokens`：限制每次顧問的輸出，思考也算在內，最小 1024，官方建議從 2048 開始
+- `max_uses`：限制「單一請求」內的呼叫次數，不是整個 run，跨請求要自己控管
+- `caching='5m'`：快取顧問讀的對話。官方說大約呼叫 3 次才打平，2 次以下反而更貴
+
+**主題 B：本機 Advisor（跨供應商）**：
+
+[pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/) 的 `Advisor('anthropic:claude-opus-5-5')` 會依執行者自動切換：執行者也是 Anthropic 就用原生 advisor tool，其他供應商（範例用 NVIDIA Nemotron）就改成一般的 `advisor(prompt)` 函式工具，裡面再用 Opus 跑一個獨立的 agent。其中一次實測，NVIDIA 第一次請教時寫的計畫只查 2026 年，顧問用明文回覆「行事曆要涵蓋 2027 年」，最後答對 2027-01-15。和原生模式的差異：
+
+- **顧問看得到什麼**：原生模式直接讀整段對話；本機模式只看到執行者寫的 `prompt`，`forward_history=True` 才會帶上完整對話
+- **建議內容**：原生模式是加密的；本機模式就是一般的工具回傳，看得到
+- **費用**：原生模式的 `usage.cost` 不含顧問費；本機模式的顧問是一般的 Opus 請求，費用會算進 `usage.cost`。實測 $0.046～$0.054，全部是顧問費，因為 NVIDIA 查無價格
+- **速度**：本機模式每次請教都多一次來回，NVIDIA 加顧問約 1 分鐘
+
+**注意**：沒掛顧問的 agent，instructions 裡不要提到 advisor。實測 NVIDIA 會到處找這個不存在的工具，重複呼叫行事曆好幾次。advisor tool 只能用在 Claude API 和 Claude Platform on AWS，Bedrock、Vertex、Foundry 不支援
 
 ---
 
