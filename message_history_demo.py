@@ -6,9 +6,9 @@ PydanticAI 多輪對話與訊息歷史示範 (使用 NVIDIA NIM)
 1. 無記憶 vs 有記憶 - 為什麼一次性問答不夠用
 2. message_history - 把上一輪對話餵回去，維持上下文
 3. all_messages() / new_messages() - 取出對話訊息
-4. 序列化存檔 / 讀回 - 用 ModelMessagesTypeAdapter 把對話存成 JSON，
-   下次開啟程式再接著聊（跨 session 持久化）
-5. conversation_id - 同一段對話的多次 run 會共享同一個 ID
+4. Conversation (V2.55) - 用 conversation= 接續對話，再用 ConversationTypeAdapter
+   存成 JSON，下次開啟程式再接著聊（跨 session 持久化）
+5. conversation_id / usage - 同一段對話共享同一個 ID，usage 也會跨 run 累積
 6. History Processor (V2 capabilities) - 只保留最近 N 則訊息以節省 token
 
 NVIDIA NIM：https://build.nvidia.com/
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from pydantic_ai import Agent, ModelMessage, ModelMessagesTypeAdapter
+from pydantic_ai import Agent, Conversation, ConversationTypeAdapter, ModelMessage
 from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -105,40 +105,46 @@ async def demo_2_persist_and_resume():
 
     # --- 第一段 session：聊兩輪後存檔 ---
     print("\n--- 🟢 第一段 session ---")
-    history: list[ModelMessage] = []  # 累積整段對話
-    first_conversation_id = None
+    # Conversation 把 messages、usage、conversation_id（還有待核准的工具呼叫）打包在一起，
+    # 用 conversation= 傳回去，比只傳 message_history= 完整（V2.55 官方建議的寫法）
+    conversation: Conversation | None = None  # None = 開新對話
 
     for user_input in ["我下週要去日本京都旅遊。", "幫我推薦一個當地必吃的食物。"]:
         print(f"👤 使用者: {user_input}")
-        result = await agent.run(user_input, message_history=history)
+        result = await agent.run(user_input, conversation=conversation)
         print(f"🤖 AI: {result.output}")
-        history = result.all_messages()  # 滾動更新：包含到目前為止的完整對話
-        first_conversation_id = result.conversation_id
+        conversation = result.conversation  # 滾動更新：包含到目前為止的完整對話
+    assert conversation is not None  # 跑過兩輪一定有值（讓型別檢查器知道不是 None）
 
-    # 把對話歷史序列化成 JSON 存檔
-    # ModelMessagesTypeAdapter 是官方提供的轉換器，能在 Python 物件 <-> JSON 間轉換
-    HISTORY_FILE.write_bytes(ModelMessagesTypeAdapter.dump_json(history))
-    print(f"\n💾 已將 {len(history)} 則訊息存到 {HISTORY_FILE.name}")
+    # 把整段對話序列化成 JSON 存檔
+    # ConversationTypeAdapter 是官方提供的轉換器，能在 Python 物件 <-> JSON 間轉換
+    HISTORY_FILE.write_bytes(ConversationTypeAdapter.dump_json(conversation))
+    print(f"\n💾 已將 {len(conversation.messages)} 則訊息存到 {HISTORY_FILE.name}")
 
     # --- 模擬：關掉程式、重新開啟，從檔案讀回對話 ---
     print("\n--- 🔵 第二段 session（假裝是重開程式後）---")
-    loaded_bytes = HISTORY_FILE.read_bytes()
-    loaded_history = ModelMessagesTypeAdapter.validate_json(loaded_bytes)
-    print(f"📂 從檔案讀回 {len(loaded_history)} 則訊息")
+    loaded = ConversationTypeAdapter.validate_json(HISTORY_FILE.read_bytes())
+    print(f"📂 從檔案讀回 {len(loaded.messages)} 則訊息，之前已累積 {loaded.usage.requests} 次請求")
 
     # 用「它」這種代名詞測試 AI 是否真的記得前面聊的京都
     print("👤 使用者: 我剛剛說要去哪個城市？那裡還有什麼景點推薦？")
     result2 = await agent.run(
         "我剛剛說要去哪個城市？那裡還有什麼景點推薦？",
-        message_history=loaded_history,
+        conversation=loaded,
     )
     print(f"🤖 AI: {result2.output}")
 
     # conversation_id 會跨 run 延續：同一段對話即使存檔讀回，ID 仍相同
     print("\n🔗 conversation_id 驗證:")
-    print(f"   第一段 session: {first_conversation_id}")
+    print(f"   第一段 session: {conversation.conversation_id}")
     print(f"   第二段 session: {result2.conversation_id}")
-    print(f"   是否為同一段對話: {first_conversation_id == result2.conversation_id}")
+    print(f"   是否為同一段對話: {conversation.conversation_id == result2.conversation_id}")
+
+    # usage 也跟著對話累積；只傳 message_history= 的話，每次 run 都從 0 重算，
+    # UsageLimits(request_limit=...) 就只能限制單次 run，管不到整段對話
+    print("\n📊 usage 累積驗證:")
+    print(f"   conversation= 這次 run 的 usage.requests: {result2.usage.requests}（含先前兩輪）")
+    print("   若改用 message_history=，這裡只會是 1")
 
 
 # ========== Demo 3: History Processor 省 token (V2 capabilities) ==========
@@ -206,7 +212,8 @@ async def main():
         print("💡 重點回顧:")
         print("   - message_history= 是維持多輪對話上下文的關鍵")
         print("   - all_messages() 取完整歷史；new_messages() 只取本輪新增")
-        print("   - ModelMessagesTypeAdapter 讓對話能存成 JSON、跨 session 還原")
+        print("   - conversation= 一次帶上訊息、usage、conversation_id，是 V2.55 建議的接續方式")
+        print("   - ConversationTypeAdapter 讓整段對話能存成 JSON、跨 session 還原")
         print("   - conversation_id 自動串起同一段對話的多次 run")
         print("   - ProcessHistory capability 可控制送出的訊息量，避免 token 暴增")
 

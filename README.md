@@ -382,7 +382,7 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 
 ## 多輪對話：訊息歷史與記憶（Message History）
 
-預設每次 `agent.run()` 都是「全新對話」——模型不會記得上一輪講過什麼。要做出能連續聊天的應用，關鍵就是把先前的對話用 `message_history=` 餵回去。這個範例展示三件事：① 無記憶 vs 有記憶的對比、② 把對話序列化成 JSON 存檔、下次再讀回來接著聊（跨 session 持久化）、③ 用 History Processor 控制送出的訊息量來省 token。
+預設每次 `agent.run()` 都是「全新對話」——模型不會記得上一輪講過什麼。要做出能連續聊天的應用，關鍵就是把先前的對話用 `message_history=` 餵回去。這個範例展示三件事：① 無記憶 vs 有記憶的對比、② 用 `Conversation` 把整段對話存成 JSON、下次再讀回來接著聊（跨 session 持久化）、③ 用 History Processor 控制送出的訊息量來省 token。
 
 參考 [message_history_demo.py](message_history_demo.py)（使用 NVIDIA NIM）
 
@@ -392,7 +392,11 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 
 **取出訊息**：`result.all_messages()` 取完整歷史（含先前所有 run）；`result.new_messages()` 只取本輪新增
 
-**存檔／讀回**：`ModelMessagesTypeAdapter.dump_json(history)` 序列化成 JSON bytes，`ModelMessagesTypeAdapter.validate_json(data)` 還原，即可跨 session 接續對話
+**整段對話打包（V2.55 建議寫法）**：`agent.run(prompt, conversation=result.conversation)`。`Conversation` 把 messages、usage、`conversation_id`、待核准的工具呼叫打包在一起，取代分別傳 `message_history=` / `usage=` / `conversation_id=`（同時傳會報錯）
+
+**存檔／讀回**：`ConversationTypeAdapter.dump_json(conversation)` 序列化成 JSON bytes，`ConversationTypeAdapter.validate_json(data)` 還原，即可跨 session 接續對話；只想存訊息的話，舊的 `ModelMessagesTypeAdapter` 仍可用
+
+**usage 跟著對話累積**：用 `conversation=` 接續時，`result.usage` 會包含先前每一輪（實測第三輪 `usage.requests` = 3）；只傳 `message_history=` 的話每次都從 0 重算，`UsageLimits` 就管不到整段對話的總量
 
 **對話關聯**：同一段對話的多次 run 共享同一個 `result.conversation_id`，即使存檔讀回也不變，方便在 Logfire 等工具追蹤
 
