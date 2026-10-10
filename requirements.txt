@@ -1,6 +1,6 @@
 # Pydantic AI v2
 # 預設安裝已包含 openai / anthropic / google 等 provider，
-# GitHub provider（GitHubProvider）走 OpenAI 相容介面，皆無需額外 extras。
+# NVIDIA NIM 走 OpenAI 相容介面（OpenAIProvider），皆無需額外 extras。
 # claude_cache_demo.py 用到的 anthropic_cache_diagnostics 需要 2.55 以上
 pydantic-ai>=2.55,<3
 

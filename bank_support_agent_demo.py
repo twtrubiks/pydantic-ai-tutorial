@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
@@ -57,13 +57,18 @@ class SupportOutput(BaseModel):
     block_card: bool = Field(description="是否封鎖客戶的卡片")
     risk: int = Field(description='查詢的風險等級', ge=0, le=10)
 
-GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
-model_name = "gpt-4o-mini"
+# 設置 NVIDIA API Key（前往 https://build.nvidia.com/ 取得，格式為 nvapi-...）
+NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY')
+model_name = "nvidia/nemotron-3-super-120b-a12b"
 
 # 4. 建立 AI 模型（支援多種 LLM：OpenAI, Anthropic, Google 等）
+# 透過 OpenAIProvider 指向 NVIDIA NIM 的 OpenAI 相容端點
 model = OpenAIChatModel(
     model_name,
-    provider=GitHubProvider(api_key=GITHUB_API_KEY),
+    provider=OpenAIProvider(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY,
+    ),
 )
 
 

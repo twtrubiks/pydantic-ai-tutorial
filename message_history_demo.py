@@ -1,5 +1,5 @@
 """
-PydanticAI 多輪對話與訊息歷史示範 (使用 GitHub Models)
+PydanticAI 多輪對話與訊息歷史示範 (使用 NVIDIA NIM)
 展示 Message History 如何讓 Agent「記住」先前的對話
 
 這個範例展示了：
@@ -11,7 +11,7 @@ PydanticAI 多輪對話與訊息歷史示範 (使用 GitHub Models)
 5. conversation_id - 同一段對話的多次 run 會共享同一個 ID
 6. History Processor (V2 capabilities) - 只保留最近 N 則訊息以節省 token
 
-GitHub Models 文檔：https://docs.github.com/en/github-models
+NVIDIA NIM：https://build.nvidia.com/
 Pydantic AI 文檔：https://ai.pydantic.dev/message-history/
 """
 
@@ -24,28 +24,30 @@ from dotenv import load_dotenv
 from pydantic_ai import Agent, ModelMessage, ModelMessagesTypeAdapter
 from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
 
-# 設置 GitHub API Key
-GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
-model_name = "gpt-4o-mini"
+# 設置 NVIDIA API Key
+NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY')
+model_name = "nvidia/nemotron-3-super-120b-a12b"
 
 # 檢查 API Key
-if not GITHUB_API_KEY:
-    print("⚠️ 警告：請在 .env 檔案中設置 GITHUB_API_KEY")
+if not NVIDIA_API_KEY:
+    print("⚠️ 警告：請在 .env 檔案中設置 NVIDIA_API_KEY")
     print("💡 執行步驟：")
-    print("   1. 前往 GitHub 設置 > Developer settings > Personal access tokens")
-    print("   2. 創建新的 token 並添加 'models:read' 權限")
-    print("   3. 在 .env 檔案中添加：GITHUB_API_KEY=github_pat_...")
+    print("   1. 前往 https://build.nvidia.com/ 註冊並獲取 API Key")
+    print("   2. 在 .env 檔案中添加：NVIDIA_API_KEY=nvapi-...")
     exit(1)
 
-# 建立 AI 模型（使用 GitHub Models）
+# 建立 AI 模型（透過 OpenAIProvider 指向 NVIDIA NIM 的 OpenAI 相容端點）
 model = OpenAIChatModel(
     model_name,
-    provider=GitHubProvider(api_key=GITHUB_API_KEY),
+    provider=OpenAIProvider(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY,
+    ),
 )
 
 # 對話歷史的存檔路徑（demo 2 會用到）
@@ -191,7 +193,7 @@ async def demo_3_history_processor():
 
 async def main():
     """主程式入口"""
-    print("🗂️  PydanticAI 多輪對話與訊息歷史展示 (GitHub Models)")
+    print("🗂️  PydanticAI 多輪對話與訊息歷史展示 (NVIDIA NIM)")
     print(f"🚀 使用模型：{model_name}")
 
     try:
@@ -211,8 +213,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ 執行出錯: {e}")
         print("💡 可能的原因：")
-        print("   - GitHub API Key 未設置或無效")
-        print("   - GitHub token 缺少 'models:read' 權限")
+        print("   - NVIDIA API Key 未設置或無效")
         print("   - 網路連接問題或模型暫時不可用")
 
 

@@ -1,5 +1,5 @@
 """
-PydanticAI 評估框架示範 - Pydantic Evals (使用 GitHub Models)
+PydanticAI 評估框架示範 - Pydantic Evals (使用 NVIDIA NIM)
 展示如何系統化地「驗證 AI 回答品質」
 
 單元測試問：「給定輸入，程式是否回傳正確的輸出？」（確定性、非對即錯）
@@ -25,30 +25,32 @@ from dotenv import load_dotenv
 
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, IsInstance, LLMJudge
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
 
-# 設置 GitHub API Key
-GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
-model_name = "gpt-4o-mini"
+# 設置 NVIDIA API Key
+NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY')
+model_name = "nvidia/nemotron-3-super-120b-a12b"
 
 # 檢查 API Key
-if not GITHUB_API_KEY:
-    print("⚠️ 警告：請在 .env 檔案中設置 GITHUB_API_KEY")
+if not NVIDIA_API_KEY:
+    print("⚠️ 警告：請在 .env 檔案中設置 NVIDIA_API_KEY")
     print("💡 執行步驟：")
-    print("   1. 前往 GitHub 設置 > Developer settings > Personal access tokens")
-    print("   2. 創建新的 token 並添加 'models:read' 權限")
-    print("   3. 在 .env 檔案中添加：GITHUB_API_KEY=github_pat_...")
+    print("   1. 前往 https://build.nvidia.com/ 註冊並獲取 API Key")
+    print("   2. 在 .env 檔案中添加：NVIDIA_API_KEY=nvapi-...")
     exit(1)
 
-# 建立 AI 模型（使用 GitHub Models）
+# 建立 AI 模型（透過 OpenAIProvider 指向 NVIDIA NIM 的 OpenAI 相容端點）
 model = OpenAIChatModel(
     model_name,
-    provider=GitHubProvider(api_key=GITHUB_API_KEY),
+    provider=OpenAIProvider(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=NVIDIA_API_KEY,
+    ),
 )
 
 
@@ -114,7 +116,7 @@ dataset = Dataset(
         # 內建評估器：檢查輸出是不是字串（格式 / 型別檢查，零成本）
         IsInstance(type_name="str"),
         # LLM 裁判：用 LLM 評估主觀品質。include_input=True 讓裁判同時看到「問題」與「回答」
-        # 這裡指定用同一個 GitHub Models 當裁判（預設會用 OpenAI，需另設金鑰）
+        # 這裡指定用同一個 NVIDIA NIM 模型當裁判（預設會用 OpenAI，需另設金鑰）
         LLMJudge(
             rubric="回答必須切題、誠實，且使用繁體中文，語氣友善有禮。",
             include_input=True,
@@ -128,7 +130,7 @@ dataset = Dataset(
 
 def main():
     """跑一輪評估實驗：對資料集裡每個 case 執行 Task，再用評估器打分。"""
-    print("📊 PydanticAI 評估框架展示 - Pydantic Evals (GitHub Models)")
+    print("📊 PydanticAI 評估框架展示 - Pydantic Evals (NVIDIA NIM)")
     print(f"🚀 待評估模型：{model_name}")
     print("⏳ 正在對 3 個案例執行 Task 並評分（含 LLM 裁判，需呼叫 API）...\n")
 

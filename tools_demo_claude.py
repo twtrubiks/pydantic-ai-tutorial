@@ -1,5 +1,5 @@
 """
-PydanticAI 工具系統示範 - 骰子遊戲範例 (使用 GitHub Models)
+PydanticAI 工具系統示範 - 骰子遊戲範例 (使用 Anthropic Claude)
 展示 Agent Tools 和 Function Calling 功能
 
 這個範例展示了：
@@ -7,9 +7,9 @@ PydanticAI 工具系統示範 - 骰子遊戲範例 (使用 GitHub Models)
 2. @agent.tool - 有上下文工具（可訪問 RunContext）
 3. Function Calling 的自動選擇機制
 4. AI 如何根據對話內容決定使用哪些工具
-5. 使用 GitHub Models 訪問多種模型
+5. 使用 Claude Haiku（便宜、Function Calling 穩定）
 
-GitHub Models 文檔：https://docs.github.com/en/github-models
+Anthropic 文檔：https://platform.claude.com/docs/en/api/overview
 Pydantic AI 文檔：https://ai.pydantic.dev/tools/
 """
 
@@ -19,37 +19,36 @@ import os
 from dotenv import load_dotenv
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
 
-# 設置 GitHub API Key
-# 你需要在 GitHub 設置中創建 Personal Access Token，並添加 'models:read' 權限
-GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
+# 設置 Anthropic API Key
+# 你需要前往 https://platform.claude.com/settings/keys 取得 API Key（格式為 sk-ant-...）
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
-# GitHub Models 使用前綴格式的模型名稱
-model_name = "gpt-4o-mini"
+# Claude Haiku：最便宜的 Claude 模型，工具呼叫穩定
+model_name = "claude-haiku-5-5"
 
 # 檢查 API Key
-if not GITHUB_API_KEY:
-    print("⚠️ 警告：請在 .env 檔案中設置 GITHUB_API_KEY")
+if not ANTHROPIC_API_KEY:
+    print("⚠️ 警告：請在 .env 檔案中設置 ANTHROPIC_API_KEY")
     print("💡 執行步驟：")
-    print("   1. 前往 GitHub 設置 > Developer settings > Personal access tokens")
-    print("   2. 創建新的 token 並添加 'models:read' 權限")
-    print("   3. 在 .env 檔案中添加：GITHUB_API_KEY=github_pat_...")
+    print("   1. 前往 https://platform.claude.com/settings/keys 取得 API Key")
+    print("   2. 在 .env 檔案中添加：ANTHROPIC_API_KEY=sk-ant-...")
     exit(1)
 
-# 1. 建立 AI 模型（使用 GitHub Models）
-model = OpenAIChatModel(
+# 1. 建立 AI 模型（使用 Anthropic Claude）
+model = AnthropicModel(
     model_name,
-    provider=GitHubProvider(api_key=GITHUB_API_KEY),
+    provider=AnthropicProvider(api_key=ANTHROPIC_API_KEY),
 )
 
-print(f"🚀 使用 GitHub Models：{model_name}")
-print("📡 API 端點：GitHub Models")
-print("✅ GitHub Models 支援完整的 Function Calling 功能")
+print(f"🚀 使用 Claude 模型：{model_name}")
+print("📡 API 端點：Anthropic API")
+print("✅ Claude 支援完整的 Function Calling 功能（含無參數工具）")
 
 # 2. 建立 PydanticAI Agent 並定義依賴類型
 # deps_type=str 表示依賴類型是字串（玩家姓名）
@@ -134,7 +133,7 @@ async def play_dice_game(player_name: str, guess_text: str):
 async def demonstrate_tools():
     """展示不同的工具使用情境"""
 
-    print("🎯 PydanticAI 工具系統展示 - 骰子遊戲範例 (GitHub Models)")
+    print("🎯 PydanticAI 工具系統展示 - 骰子遊戲範例 (Claude)")
     print("=" * 60)
 
     # 測試案例 1: 基本遊戲
@@ -178,11 +177,11 @@ def analyze_tools():
     print("   🔄 依序或並行調用工具")
     print("   💬 整合結果生成回應")
 
-    print("\n5. GitHub Models 優勢:")
-    print("   ✅ 免費訪問多種頂級 AI 模型")
-    print("   ✅ 完整的 Function Calling 支援")
-    print("   ✅ 與 GitHub 生態系統整合")
-    print("   ✅ 穩定的 API 服務")
+    print("\n5. 為什麼這支用 Claude:")
+    print("   ✅ roll_dice()、get_player_name() 都是無參數工具")
+    print("   ⚠️  實測 NVIDIA Nemotron 呼叫無參數工具時會自己編參數，被驗證擋下後超過重試上限")
+    print("   ✅ Claude Haiku 便宜，呼叫無參數工具也很穩定")
+    print("   📌 換模型前，先確認它能正確處理你的工具型態")
 
 # ========== 6. 主程式 ==========
 
@@ -202,17 +201,15 @@ async def main():
         print("   - 工具的文檔字符串如何指導 AI")
         print("   - @tool_plain vs @tool 的使用場景")
         print("   - RunContext 如何傳遞上下文資訊")
-        print("   - GitHub Models 提供穩定的 AI 模型服務")
+        print("   - 不同模型對工具呼叫的支援程度不同，選模型時要實測")
 
     except Exception as e:
         print(f"❌ 執行出錯: {e}")
         print("💡 可能的原因：")
-        print("   - GitHub API Key 未設置或無效")
-        print("   - GitHub token 缺少 'models:read' 權限")
+        print("   - Anthropic API Key 未設置或無效")
         print("   - 網路連接問題")
         print("   - 模型暫時不可用")
-        print("💡 請檢查 GITHUB_API_KEY 是否正確設置在 .env 檔案中")
-        print("💡 確保 token 具有 'models:read' 權限")
+        print("💡 請檢查 ANTHROPIC_API_KEY 是否正確設置在 .env 檔案中")
 
 if __name__ == "__main__":
     # 執行異步主程式

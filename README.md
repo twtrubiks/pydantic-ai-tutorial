@@ -52,11 +52,10 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`） | <https://platform.claude.com/settings/keys> |
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
-| `GITHUB_API_KEY` | GitHub Models（`tools_demo_github.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py` 等） | <https://github.com/settings/tokens> |
-| `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`） | <https://build.nvidia.com/> |
+| `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`） | <https://build.nvidia.com/> |
 
 ---
 
@@ -152,7 +151,7 @@ except:
 
 [tools_demo_openrouter.py](tools_demo_openrouter.py) - 使用 OpenRouter 的工具範例
 
-[tools_demo_github.py](tools_demo_github.py) - GitHub API 整合工具範例
+[tools_demo_claude.py](tools_demo_claude.py) - 使用 Anthropic Claude（Haiku）的工具範例
 
 **工具調用支援說明**：
 
@@ -161,6 +160,10 @@ except:
 **Google Gemini**：`gemini-3-flash-preview` 工具調用表現不夠穩定
 
 **免費模型**：OpenRouter 不確定是否為免費額度, 導致對話都只有一次就結束
+
+**NVIDIA Nemotron**：呼叫無參數工具（如 `roll_dice()`）時會自己編參數，被參數驗證擋下後超過重試上限，所以 `tools_demo_claude.py` 和 `error_handling_demo.py` 改用 Claude
+
+**Anthropic Claude**：`claude-haiku-5-5` 便宜，工具呼叫（含無參數工具）穩定，收到 ModelRetry 提示也會照著修正
 
 **核心特色**：
 
@@ -178,7 +181,7 @@ except:
 
 這個完整的銀行客服範例展示了 Pydantic AI 如何整合所有核心功能，建構一個真正的生產級 AI 系統。
 
-參考 [bank_support_agent_demo.py](bank_support_agent_demo.py)
+參考 [bank_support_agent_demo.py](bank_support_agent_demo.py)（使用 NVIDIA NIM）
 
 **技術架構解析**：
 
@@ -196,7 +199,7 @@ except:
 
 展示 Pydantic AI 的 ModelRetry 功能，包括智能處理不完整輸入和自動重試機制。
 
-參考 [error_handling_demo.py](error_handling_demo.py)
+參考 [error_handling_demo.py](error_handling_demo.py)（使用 Anthropic Claude）
 
 **多層重試架構**：
 
@@ -376,7 +379,7 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 
 預設每次 `agent.run()` 都是「全新對話」——模型不會記得上一輪講過什麼。要做出能連續聊天的應用，關鍵就是把先前的對話用 `message_history=` 餵回去。這個範例展示三件事：① 無記憶 vs 有記憶的對比、② 把對話序列化成 JSON 存檔、下次再讀回來接著聊（跨 session 持久化）、③ 用 History Processor 控制送出的訊息量來省 token。
 
-參考 [message_history_demo.py](message_history_demo.py)（使用 GitHub Models）
+參考 [message_history_demo.py](message_history_demo.py)（使用 NVIDIA NIM）
 
 **核心做法**：
 
@@ -539,7 +542,7 @@ agent = Agent(fallback)
 
 單元測試問的是「給定輸入，程式有沒有回傳正確的輸出？」——確定性、非對即錯。但 LLM 是機率性的，回答品質往往是「程度」問題，沒辦法用 `assert ==` 一刀切。Pydantic Evals 就是為此而生：把「測試案例 + 評分標準」組織成資料集，對 AI 系統跑一輪實驗並產出評分報告。它和上面的零成本測試互補——TestModel 驗證「程式流程」對不對，Evals 驗證「回答品質」好不好。
 
-參考 [evals_demo.py](evals_demo.py)（使用 GitHub Models）
+參考 [evals_demo.py](evals_demo.py)（使用 NVIDIA NIM）
 
 **核心做法**：
 

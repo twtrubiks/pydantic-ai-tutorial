@@ -24,8 +24,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic_ai.messages import RetryPromptPart, ToolCallPart, ToolReturnPart
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.usage import UsageLimits
 
 # 載入 .env 檔案中的環境變數
@@ -80,15 +80,17 @@ class UserProfile(BaseModel):
 
 # ========== 模型設定 ==========
 
-# 設置 GitHub API Key
-# 你需要在 GitHub 設置中創建 Personal Access Token，並添加 'models:read' 權限
-GITHUB_API_KEY = os.getenv('GITHUB_API_KEY')
+# 設置 Anthropic API Key
+# 你需要前往 https://platform.claude.com/settings/keys 取得 API Key（格式為 sk-ant-...）
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
-# GitHub Models 使用前綴格式的模型名稱
-model_name = "gpt-4o-mini"
-model = OpenAIChatModel(
+# 這個範例需要模型「聽得懂 ModelRetry 的提示並修正參數」，也會用到無參數工具。
+# 實測 NVIDIA Nemotron 呼叫無參數工具時會自己編參數（如 {"__noop": ""}），
+# 收到重試提示也不會改用完整姓名，因此改用便宜的 Claude Haiku。
+model_name = "claude-haiku-5-5"
+model = AnthropicModel(
     model_name,
-    provider=GitHubProvider(api_key=GITHUB_API_KEY),
+    provider=AnthropicProvider(api_key=ANTHROPIC_API_KEY),
 )
 
 # ========== Agent 建立 ==========
@@ -137,7 +139,7 @@ def get_user_by_name(ctx: RunContext[UserQueryDependencies], name: str) -> dict 
                 raise ModelRetry(
                     f'找不到完全匹配 "{name}" 的用戶。\n'
                     f'但找到以 "{name}" 開頭的用戶：{", ".join(possible_matches)}。\n'
-                    f'請使用完整的三個字姓名重試。'
+                    f'請直接用完整的三個字姓名再呼叫一次 get_user_by_name 查詢。'
                 )
 
         print(f"  ❌ 找不到用戶：{name}")
@@ -159,8 +161,8 @@ def validate_external_api(ctx: RunContext[UserQueryDependencies]) -> bool:
     if not success:
         # API 失敗時，使用 ModelRetry 觸發重試
         raise ModelRetry(
-            'API 服務暫時不可用，請重試。'
-            '這是暫時性的網路問題。'
+            'API 服務暫時不可用，這是暫時性的網路問題。'
+            '請直接再呼叫一次 validate_external_api，通常重試幾次就會成功。'
         )
 
     return True
@@ -315,7 +317,7 @@ async def main():
 
     except Exception as e:
         print(f"❌ 執行出錯：{e}")
-        print("💡 請檢查 GITHUB_API_KEY 是否正確設置在 .env 檔案中")
+        print("💡 請檢查 ANTHROPIC_API_KEY 是否正確設置在 .env 檔案中")
 
 if __name__ == "__main__":
     # 執行異步主程式
