@@ -121,7 +121,7 @@ except:
 
 **ToolOutput（預設）**：用 tool calling 回傳結構化資料，相容性最廣（前面範例就是它）
 
-**NativeOutput**：schema 走 API 頂層 `response_format` / JSON schema（**不進 prompt**），只有端點支援原生結構化輸出時才會被「強制」
+**NativeOutput**：schema 走 API 頂層 `response_format` / JSON schema（**預設不進 prompt**），只有端點支援原生結構化輸出時才會被「強制」
 
 **PromptedOutput**：把 JSON schema 塞進 prompt，請模型「自己」回 JSON，**任何模型都能用**，但純靠提示約束、可靠度略低
 
@@ -132,6 +132,8 @@ except:
 **同一結構、兩種模式**：範例用同一個 `Recipe` 資料結構分別跑 NativeOutput 與 PromptedOutput，證明兩者都能得到同樣型別的結構化結果
 
 **都有安全網**：兩種模式模型「都可能不遵守」（Native 端點不支援會被忽略、Prompted 模型可能回非預期格式），但不論哪種，pydantic_ai 最後都會用 Pydantic 驗證回傳值，不合就重試，重試用完才拋 `UnexpectedModelBehavior`——不會默默把壞資料丟給你
+
+**NVIDIA 端點的坑**：NVIDIA NIM 會依 schema 強制 JSON 格式，卻不把 schema 給模型看（輸入只有約 69 token）。Nemotron 不知道欄位意思只能硬填，實測會出現料理名稱帶「(2 人份)」、食材清單混進 `':材料:'`、`'- 番茄…'` 這類雜訊。只改 `Field(description=...)` 沒用，因為模型根本看不到。解法是用 `NativeOutput(Recipe, template="請依照這個 JSON schema 回答：\n{schema}")` 把 schema 也放進 prompt，pydantic-ai 的 vLLM provider 也是這樣處理。同樣的 `Recipe` 換成 Claude Haiku 則不需要 template，Anthropic 會自己把 schema 交給模型
 
 **怎麼選**：
 

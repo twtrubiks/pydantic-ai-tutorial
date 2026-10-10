@@ -3,7 +3,7 @@ Output Mode 範例（聚焦：NativeOutput / PromptedOutput 兩種結構化輸�
 
 Pydantic AI 取得結構化輸出共有三種模式：
 - ToolOutput（預設）：用 tool calling 回傳結構化資料，相容性最廣。
-- NativeOutput：schema 走 API 的 response_format / JSON schema（不進 prompt），
+- NativeOutput：schema 走 API 的 response_format / JSON schema（預設不進 prompt），
   端點有支援才會被「強制」，只有支援的模型 / 端點才能用。
 - PromptedOutput：把 JSON schema 塞進 prompt，請模型「自己」回 JSON，
   任何模型都能用，但純靠提示約束、可靠度略低。
@@ -18,6 +18,12 @@ Pydantic AI 取得結構化輸出共有三種模式：
 
 模型沿用本專案其他 NVIDIA NIM 範例（output_validator_demo.py 等）的
 Nemotron（OpenAI 相容端點）。
+
+NVIDIA 端點的坑：它會依 schema 強制 JSON 格式，卻不把 schema 給模型看
+（輸入只有約 69 token）。模型不知道每個欄位的意思，只能硬填，於是會出現
+料理名稱帶份量、食材清單混進「:材料:」「- 」這類雜訊。
+解法是用 NativeOutput 的 template 參數，把 schema 也放進 prompt。
+（pydantic-ai 的 vLLM provider 也是這樣處理：native_output_requires_schema_in_instructions）
 
 文檔參考：https://pydantic.dev/docs/ai/core-concepts/output/#structured-output
 """
@@ -91,9 +97,14 @@ async def demo_output_modes():
     print("\n📌 模式 1：NativeOutput（模型原生結構化輸出）")
     print("-" * 40)
     print(
-        "  說明：schema 走頂層 response_format（不進 prompt）；端點支援才會被強制，回傳後仍由 pydantic_ai 驗證。"
+        "  說明：schema 走頂層 response_format（預設不進 prompt）；端點支援才會被強制，回傳後仍由 pydantic_ai 驗證。"
     )
-    await run_one_mode("NativeOutput", NativeOutput(Recipe))
+    print("  補充：NVIDIA 端點不會把 schema 給模型看，所以用 template 把 schema 也放進 prompt。")
+    # 不加 template 的話，Nemotron 看不到欄位說明，輸出會混進 markdown 雜訊
+    await run_one_mode(
+        "NativeOutput",
+        NativeOutput(Recipe, template="請依照這個 JSON schema 回答：\n{schema}"),
+    )
 
     # 模式 2：PromptedOutput —— 把 schema 塞進 prompt，請模型自己回 JSON
     print("\n📌 模式 2：PromptedOutput（提示式結構化輸出）")
@@ -116,7 +127,7 @@ def explain():
     print("\n1. 三種 output mode：")
     print("   • ToolOutput（預設）：tool calling 回傳，相容性最廣")
     print(
-        "   • NativeOutput：schema 走 API response_format（不進 prompt），端點支援才強制"
+        "   • NativeOutput：schema 走 API response_format（預設不進 prompt），端點支援才強制"
     )
     print("   • PromptedOutput：schema 塞進 prompt，任何模型可用、純靠提示約束")
 
@@ -125,7 +136,12 @@ def explain():
     print("   • 不論哪種，pydantic_ai 都會用 Pydantic 驗證回傳值，不合就重試")
     print("   • 重試用完仍不合 → 拋 UnexpectedModelBehavior，不會默默給壞資料")
 
-    print("\n3. 怎麼選？")
+    print("\n3. NativeOutput 的 template 參數：")
+    print("   • 有些 OpenAI 相容端點（如 NVIDIA NIM、vLLM）只強制格式、不把 schema 給模型看")
+    print("   • 症狀：輸入 token 很少，欄位內容混進標題、項目符號等雜訊")
+    print("   • 解法：NativeOutput(Recipe, template='...{schema}')，把 schema 也放進 prompt")
+
+    print("\n4. 怎麼選？")
     print("   • 端點支援原生結構化輸出（response_format json_schema）→ 優先 NativeOutput")
     print("   • 端點不支援 tool / 原生 JSON、或想最大相容 → PromptedOutput")
     print("   • 需要多工具混合呼叫的流程 → 維持預設 ToolOutput")
