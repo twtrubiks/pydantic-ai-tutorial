@@ -52,7 +52,7 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`tool_approval_demo.py`、`web_chat_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
 | `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`） | <https://build.nvidia.com/> |
@@ -315,6 +315,52 @@ Pydantic AI 可以作為 **MCP Client**，把「已經獨立跑起來」的 MCP 
 **護欄在工具集層**：被擋掉的工具不會進入送給模型的清單，模型根本看不到、也就無從呼叫
 
 **驗證生效**：`await toolset.get_tools(ctx)` 印出模型「真正看得到」的工具——場景 A（完整工具集）看得到刪除工具、資料真的被刪；場景 B（filtered）看不到、資料安然無恙
+
+---
+
+## 安全護欄：工具核准（Human-in-the-Loop）
+
+Toolset 過濾是讓模型「完全看不到」危險工具；但有些操作本來就該讓模型做，只是執行前要先問過人，例如大額轉帳、關閉帳戶。工具核准讓模型照常呼叫工具，Pydantic AI 會先攔下來等人決定，核准才真的執行，拒絕就把原因交給模型，讓它跟使用者解釋。
+
+參考 [tool_approval_demo.py](tool_approval_demo.py)（使用 Anthropic Claude Haiku，執行時會在終端機問你 y/N）
+
+**兩種要求核准的寫法**：
+
+**每次都要核准**：`Tool(close_account, requires_approval=True)`，適合刪除、關帳戶這類不可逆操作
+
+**依參數決定**：在工具裡 `raise ApprovalRequired(metadata={'reason': ...})`，例如轉帳超過 1,000 元才要核准。核准後 Pydantic AI 會用同樣參數再呼叫一次，這時 `ctx.tool_call_approved` 為 `True`，工具就放行
+
+**兩種處理方式**：
+
+**A. 暫停式**：`output_type=[str, DeferredToolRequests]`，遇到要核准的呼叫，run 會先結束、`result.output` 是 `DeferredToolRequests`。把 `result.conversation` 存起來，等人審核後讀回，用 `agent.run(conversation=..., deferred_tool_results=...)` 接著跑。適合核准的人不在線上（主管隔天審核、前端按鈕）。實測「轉 500 給媽媽、30,000 給房東」：500 元當下就轉了，30,000 元暫停，存檔讀回核准後才轉出
+
+**B. 中途核准（V2 新增）**：`capabilities=[HandleDeferredToolCalls(handler)]`，run 進行中直接呼叫 handler 問人，一次 run 跑完，`output_type` 也不必加 `DeferredToolRequests`。適合核准的人就在程式旁邊。實測「查餘額、轉 2,000 給房東、關閉帳戶」：handler 被呼叫兩次，轉帳核准、關帳戶拒絕，模型如實回報帳戶沒有關閉
+
+**回覆核准結果**：`True`、`ToolApproved(override_args=...)`（核准並修改參數）或 `ToolDenied('訊息')`（拒絕，訊息會交給模型）；用 `requests.build_results(approvals=...)` 組裝，會檢查每個 `tool_call_id` 都對得上
+
+**暫停時要存 Conversation**：`result.conversation` 會連同 `deferred_tool_requests` 和 metadata 一起存。只存 messages 的話，讀回來分不出哪個呼叫在等核准、為什麼要核准
+
+**核准不是權限控管**：它防的是模型自作主張，不是惡意的使用者；敏感操作在工具裡仍要自己檢查權限
+
+---
+
+## 網頁聊天介面：agent.to_web()
+
+`agent.to_web()` 一行就把 agent 變成瀏覽器聊天室：有串流回覆、工具呼叫的參數與回傳值、模型切換選單，需要核准的工具也會變成「Approve / Deny」按鈕。範例直接沿用上一節的銀行轉帳 agent，終端機的 y/N 在網頁上就變成按鈕。
+
+參考 [web_chat_demo.py](web_chat_demo.py)（預設 Claude Haiku，有設定 `GOOGLE_API_KEY` 會多出 Gemini 3 Flash 可切換），執行後打開 <http://127.0.0.1:7932>
+
+**核心做法**：
+
+**建立 app**：`app = agent.to_web(models={'Claude Haiku 5.5': haiku, 'Gemini 3 Flash': gemini}, deps=Bank())`，回傳 Starlette app，用 `uvicorn.run(app, host='127.0.0.1', port=7932)` 啟動；`pip install pydantic-ai` 預設已包含 `web` extra（Starlette + Uvicorn），不用另外裝
+
+**核准按鈕要加 output_type**：官方文件說「不需額外設定」，但實測 agent 沒有 `output_type=[str, DeferredToolRequests]` 的話，一遇到要核准的工具就會顯示錯誤。網頁走的是暫停式流程：run 先結束，按下按鈕後再接續
+
+**deps 是全站共用**：`to_web(deps=...)` 的物件給所有請求共用，伺服器沒關之前餘額會一直延續；正式應用要依使用者區分
+
+**實測**（用 Playwright 開無頭 Chrome 操作）：Haiku「轉 500 給媽媽、3,000 給房東」→ 500 直接完成、3,000 出現 Approve 按鈕，核准後餘額 46,500；切到 Gemini「查餘額、關閉帳戶」→ 按 Deny，模型回覆帳戶沒有關閉。Haiku 呼叫工具前的過場句常是英文，最後的回答才是中文，這是模型習慣，instructions 再強調也沒用
+
+**注意**：只適合本機開發與除錯，正式產品請用 [UI Event Stream](https://pydantic.dev/docs/ai/integrations/ui/overview/)（Vercel AI / AG-UI）接自己的前端。預設只接受 localhost 或 IP 的 `Host`（防 DNS rebinding），核准按鈕也不是權限控管，不要直接對外公開。畫面上的「Effort」選單在 2.55 的伺服器端沒有處理（查過原始碼），模型設定以程式裡的 `model_settings` 為準
 
 ---
 
