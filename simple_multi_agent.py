@@ -10,8 +10,10 @@ import asyncio
 from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field
+from google.genai.types import HttpRetryOptions
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.google import GoogleProvider
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,7 +47,20 @@ class ReviewResult(BaseModel):
 
 
 # === 初始化模型 ===
-model = GoogleModel('gemini-3-flash-preview')
+# Gemini 免費額度有每分鐘請求數上限，範例 2 用 asyncio.gather 一次送出多個請求，
+# 沒有重試的話會被 429 擋下。retry_options 讓 google-genai SDK 遇到 429 / 5xx 時
+# 自動等待再重試（指數退避：約 5、10、20、40、60 秒），免費 key 也能跑完，付費 key 不受影響。
+# 實測（免費 key）：10 個請求成功、8 次 429 自動重試，約 1.5 分鐘跑完。
+retry_options = HttpRetryOptions(
+    attempts=6,
+    initial_delay=5.0,
+    max_delay=60.0,
+    http_status_codes=[429, 500, 502, 503, 504],
+)
+model = GoogleModel(
+    'gemini-3-flash-preview',
+    provider=GoogleProvider(retry_options=retry_options),  # API key 讀取 GOOGLE_API_KEY
+)
 
 
 # === 研究代理 (展示工具使用) ===

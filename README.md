@@ -274,6 +274,9 @@ except:
 - **異步批次處理**：使用 `asyncio.gather()` 平行處理多個主題，提升效能
 - **自動錯誤處理**：每個階段都有 try-catch 區塊，確保部分失敗不影響整體流程
 - **類型安全**：所有資料傳遞都有明確的類型定義，減少執行時錯誤
+- **自動重試限流（429）**：`GoogleProvider(retry_options=HttpRetryOptions(...))` 讓 google-genai SDK 遇到 429 / 5xx 時自動等待再重試（指數退避，最長等 60 秒）
+
+**免費額度提醒**：Gemini 免費 key 有每分鐘請求數上限，範例 2 用 `asyncio.gather()` 一次送出多個請求，很容易收到 429。範例已加上 `retry_options`，實測免費 key 的結果是 10 個請求成功、8 次 429 自動重試，約 1.5 分鐘跑完，3 個主題全部成功。付費 key 不會碰到 429，執行速度不受影響。更通用、跨 provider 的做法可參考官方文件的 [transport retries](https://pydantic.dev/docs/ai/core-concepts/retries/#transport-retries)。
 
 ---
 
