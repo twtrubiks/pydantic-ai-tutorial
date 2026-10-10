@@ -1,7 +1,8 @@
 # Pydantic AI v2
 # 預設安裝已包含 openai / anthropic / google 等 provider，
 # GitHub provider（GitHubProvider）走 OpenAI 相容介面，皆無需額外 extras。
-pydantic-ai>=2,<3
+# claude_cache_demo.py 用到的 anthropic_cache_diagnostics 需要 2.55 以上
+pydantic-ai>=2.55,<3
 
 # 評估框架範例（evals_demo.py）使用 Pydantic Evals，需單獨安裝（不隨 pydantic-ai 自動帶入）
 pydantic-evals>=2,<3

@@ -52,6 +52,7 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
 | `GITHUB_API_KEY` | GitHub Models（`tools_demo_github.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py` 等） | <https://github.com/settings/tokens> |
@@ -393,6 +394,34 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 
 ---
 
+## Claude 專屬：Prompt Caching 與快取診斷
+
+多輪對話每一輪都會把「工具定義 + instructions + 先前對話」整包重送，手冊、程式碼這類長前綴每輪都要重新付費。Prompt caching 讓重複的前綴從快取讀回，只收 0.1 倍輸入價（部分模型更低）。OpenAI、Gemini 會自動快取，**Anthropic 預設什麼都不快取**，要在請求裡標記快取斷點才會生效。這個範例展示三件事：① 同一段對話開快取 vs 沒開的 token 帳單與美金對比、② 用 Claude API 專屬的 cache diagnostics 找出「快取為什麼沒命中」、③ 用 `cost_limit` 直接以美金設預算上限。
+
+參考 [claude_cache_demo.py](claude_cache_demo.py)（使用 Anthropic Claude，需要 pydantic-ai >= 2.55）
+
+**核心做法**：
+
+**一行開快取**：`Agent(model, capabilities=[Caching()])`，等同 `model_settings={'cache': True}`；Pydantic AI 會自動在工具定義、instructions、對話尾端放斷點（Anthropic 上限 4 個，自動管理）
+
+**計價**：5 分鐘快取寫入 1.25 倍、讀取 0.1 倍（Sonnet／Opus 5.5 為 0.05 倍、Fable 5.1 為 0.025 倍，範例依 `MODEL_NAME` 自動套用），被讀回一次就回本，對話越長越省；`Caching(retention='1h')` 寫入 2 倍，要讀回兩次才回本
+
+**看效果**：`result.usage.cache_write_tokens`、`cache_read_tokens`、`cache_hit_ratio`；注意 `input_tokens` 已包含快取讀寫
+
+**最小長度**：前綴低於模型的最小可快取長度（Haiku／Sonnet／Opus 5.5 與 Fable 5.1 為 512 token，較舊的模型為 1,024～4,096 token）就不會被快取，讀寫都是 0，而且不會報錯
+
+**快取診斷（V2.55 新增）**：`AnthropicModelSettings(anthropic_cache_diagnostics=True)`，沒命中時 `ModelResponse.provider_details['cache_diagnostics']` 會寫出原因（`model_changed` / `system_changed` / `tools_changed` / `messages_changed`）與少讀了多少 token；免費、不影響快取，只在 Claude API 有效
+
+**快取殺手**：instructions 放到秒的時間戳、對話中途增減工具、中途換模型，都會讓前綴改變；Claude 5.x 開著 thinking 時改前綴，還可能直接回 400（thinking block 綁定前綴）
+
+**只快取固定前綴**：大量一次性問答共用長 instructions 時，用 `Caching(messages=False)`，避免每段對話都付寫入費卻沒被讀回
+
+**費用追蹤（V2 內建）**：`result.usage.cost` 是用 [genai-prices](https://github.com/pydantic/genai-prices) 價格表估算的美金（`Decimal`），快取讀寫、輸出 token 都算進去。實測兩輪合計：沒開快取 $0.001689、開快取 $0.001135，省約 33%，跟等價 token 的 32% 吻合。查不到價格的模型（例如 NVIDIA NIM）會是 `None`，不是 0
+
+**用美金設預算**：`UsageLimits(cost_limit=Decimal('0.01'))`，超過就丟 `UsageLimitExceeded`。預設在**回應後**才檢查，請求已經送出、已經計費；加上 `count_tokens_before_request=True` 會先呼叫 token 計數 API 估算輸入費用，超過就不送出（錯誤訊息會變成 `The next request would exceed ...`）。這只是估算，要搭配 `request_limit` 或供應商後台的花費上限
+
+---
+
 ## 開發體驗：測試與除錯
 
 ### 零成本測試
@@ -475,11 +504,11 @@ with agent.override(model=TestModel()):
 agent = Agent('openai:gpt-4o')
 # 注意：裸 openai: 前綴預設使用 Responses API；
 # 若要使用 Chat Completions，請改寫成 openai-chat:gpt-4o
-agent = Agent('anthropic:claude-3-5-sonnet-latest')
+agent = Agent('anthropic:claude-sonnet-5-5')
 agent = Agent('google:gemini-3-flash-preview')
 agent = Agent('groq:llama-3.3-70b-versatile')
 agent = Agent('mistral:mistral-large-latest')
-agent = Agent('bedrock:anthropic.claude-3-sonnet-20240229-v1:0')
+agent = Agent('bedrock:us.anthropic.claude-haiku-5-5')
 
 # 明確實例化（更多控制）
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -488,10 +517,11 @@ model = OpenAIChatModel('gpt-4o', provider=OpenAIProvider(api_key='...'))
 agent = Agent(model)
 
 # FallbackModel 自動切換
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.fallback import FallbackModel
 fallback = FallbackModel(
     OpenAIChatModel('gpt-4o'),
-    AnthropicModel('claude-3-5-sonnet-latest')
+    AnthropicModel('claude-sonnet-5-5')
 )
 agent = Agent(fallback)
 ```
