@@ -16,3 +16,7 @@ pydantic>=2
 # 串流範例（streaming_demo.py）直接使用 rich 即時渲染
 # （pydantic-ai 的 cli extra 已會帶入，列出以表明直接相依）
 rich>=13
+
+# Claude Code 同款零件範例（claude_harness_demo.py）使用 Pydantic AI Harness，需單獨安裝；
+# 0.x 版本號跟 pydantic-ai 綁在一起（0.55 對應 2.55）。coder extra 帶入 ripgrep，skills extra 帶入 PyYAML
+pydantic-ai-harness[coder,skills]>=0.55,<1

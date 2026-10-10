@@ -52,7 +52,7 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
 | `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`） | <https://build.nvidia.com/> |
@@ -427,6 +427,34 @@ Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」�
 **費用追蹤（V2 內建）**：`result.usage.cost` 是用 [genai-prices](https://github.com/pydantic/genai-prices) 價格表估算的美金（`Decimal`），快取讀寫、輸出 token 都算進去。實測兩輪合計：沒開快取 $0.001689、開快取 $0.001135，省約 33%，跟等價 token 的 32% 吻合。查不到價格的模型（例如 NVIDIA NIM）會是 `None`，不是 0
 
 **用美金設預算**：`UsageLimits(cost_limit=Decimal('0.01'))`，超過就丟 `UsageLimitExceeded`。預設在**回應後**才檢查，請求已經送出、已經計費；加上 `count_tokens_before_request=True` 會先呼叫 token 計數 API 估算輸入費用，超過就不送出（錯誤訊息會變成 `The next request would exceed ...`）。這只是估算，要搭配 `request_limit` 或供應商後台的花費上限
+
+---
+
+## Claude Code 同款零件：Pydantic AI Harness
+
+[pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/) 是 Pydantic 官方的另一個套件，把 Claude Code 這類 coding agent 的零件做成一個個 capability，掛到 `Agent(capabilities=[...])` 就能用，等於用 pydantic-ai 組出一個簡化版 Claude Code。範例會在暫存目錄建一個迷你專案（有 `CLAUDE.md`、兩個 skill、埋了兩個 bug 的 `calc.py` 和測試檔），讓 agent 在裡面工作，跑完自動刪除。
+
+參考 [claude_harness_demo.py](claude_harness_demo.py)（使用 Anthropic Claude Haiku，需要 `pip install "pydantic-ai-harness[coder,skills]"`）
+
+**四個零件**：
+
+**Coder**：提供 `read_file` / `write_file` / `edit_file` / `list_files` / `grep` / `shell` / `delegate_task`（子代理），本身由 FileSystem + Shell + RepoContext + SubAgents + 壓縮、快取等零件組成，也預設開啟 prompt caching
+
+**Skills**：讀 `SKILL.md`（跟 Claude Code skills 同一個 [agentskills.io](https://agentskills.io/specification) 標準）。模型一開始只看到每個 skill 的名稱和描述，需要時才用 `load_capability` 載入內文；不會自動搜尋 `.claude/skills`，要用 `Skills('.claude/skills')` 明確指定
+
+**RepoContext**：run 開始時自動讀 `CLAUDE.md` / `AGENTS.md` 放進 instructions；`expose_inventory_tool=True` 會多一個工具，列出 `.claude` 底下的 skills、agents、hooks（Coder 已內含 RepoContext）
+
+**SystemReminders**：照 Claude Code 的做法，用 `<system-reminder>` 標籤在長任務中途重申規則（例如 `Reminder('只能修改 calc.py', interval=3)`）。只放在每次請求的尾端，不寫進對話歷史、不打破快取；要用 `@agent.on_event(ReminderFiredEvent)` 才看得到它何時觸發
+
+**兩個主題**：
+
+**A. RepoContext + Skills（唯讀）**：不給 shell，問 agent 這個專案有哪些 coding-assistant 設定。實測它會呼叫 `inventory_agent_context()`，正確說出 CLAUDE.md 的規則和兩個 skill，且不載入 skill 內文
+
+**B. Coder + Skills + SystemReminders**：交代「`test_calc.py` 跑不過，請找出原因並修好，最後寫一份修正說明」。實測 agent 會自己讀檔、跑測試、用 `edit_file` 修好兩個 bug、再跑一次測試，並載入 `release-notes` skill 照格式寫說明；範例最後會自己重跑測試、確認測試檔沒被改，不只相信 agent 的說法。整個主題約 3～4 次請求，大部分輸入從快取讀回
+
+**Skill 描述要寫清楚「什麼時候用」**：實測描述寫成「撰寫修正說明時使用」，Haiku 會直接用自己的格式寫；改成「撰寫修正說明前，一定要先載入這個 skill」才穩定載入。模型只看得到描述，描述就是觸發條件
+
+**安全性**：Coder 的 shell 沒有指令白名單，務必讓它在暫存目錄或 sandbox（Modal / E2B）裡跑。`LocalWorkspace` 只把 `PATH`、`HOME`、`LANG` 傳給 shell，不會把 API Key 交給模型執行的指令；不要用 `env=os.environ`
 
 ---
 
