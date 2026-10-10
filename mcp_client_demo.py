@@ -23,8 +23,8 @@ MCP Client 範例（聚焦：用 MCPToolset 把 Odoo MCP server 掛上 Agent）
 - 為了安全，本範例只下「唯讀」類的查詢；建議 server 端也開 READONLY_MODE=true。
 
 文檔參考：
-- https://ai.pydantic.dev/mcp/client/
-- https://ai.pydantic.dev/mcp/client/#streamable-http-client
+- https://pydantic.dev/docs/ai/mcp/client/
+- https://pydantic.dev/docs/ai/mcp/client/#streamable-http
 """
 
 import asyncio

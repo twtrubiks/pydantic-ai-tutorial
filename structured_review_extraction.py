@@ -2,7 +2,7 @@
 PydanticAI 結構化資料提取範例
 將非結構化的影評文字轉換為結構化的 Python 物件
 
-文檔可參考：https://ai.pydantic.dev/models/google/
+文檔可參考：https://pydantic.dev/docs/ai/models/google/
 """
 
 from dotenv import load_dotenv

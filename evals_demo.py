@@ -16,7 +16,7 @@ PydanticAI 評估框架示範 - Pydantic Evals (使用 NVIDIA NIM)
 4. 為什麼開放式問題只能靠 LLMJudge - 沒有標準答案可比對
 5. evaluate_sync() 跑實驗並用 report.print() 產出評分報告
 
-Pydantic Evals 文檔：https://ai.pydantic.dev/evals/
+Pydantic Evals 文檔：https://pydantic.dev/docs/ai/evals/evals/
 """
 
 import os

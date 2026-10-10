@@ -13,7 +13,7 @@ PydanticAI 輸出驗證層示範 - 用戶資料查詢範例 (使用 NVIDIA NIM)
 - 輸出層：驗證 AI 組裝出來的最終結果（跨欄位一致性）
 
 NVIDIA NIM 文檔：https://build.nvidia.com/
-Pydantic AI 文檔：https://ai.pydantic.dev/output/#output-validator-functions
+Pydantic AI 文檔：https://pydantic.dev/docs/ai/core-concepts/output/#output-validator-functions
 """
 
 import asyncio

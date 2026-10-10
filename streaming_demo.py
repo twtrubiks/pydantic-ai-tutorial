@@ -14,7 +14,7 @@
 - result.stream_output()          → 逐步吐出「累積到目前」的輸出（文字或結構化）
 - result.stream_text(delta=True)  → 只想拿「每次新增的片段」時可改用這個
 
-文檔參考：https://ai.pydantic.dev/output/#streaming-structured-output
+文檔參考：https://pydantic.dev/docs/ai/core-concepts/output/#streaming-structured-output
 """
 
 import asyncio

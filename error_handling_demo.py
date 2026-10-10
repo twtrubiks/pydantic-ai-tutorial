@@ -13,7 +13,7 @@ ModelRetry 重試機制範例
 - 場景 2：兩個字找三個字 → ModelRetry 引導 AI 修正輸入後重試
 - 場景 3：不穩定 API → ModelRetry 處理暫時性失敗，自動重試直到成功
 
-文檔參考：https://ai.pydantic.dev/agents/#retries
+文檔參考：https://pydantic.dev/docs/ai/core-concepts/agent/#reflection-and-self-correction
 """
 
 import asyncio

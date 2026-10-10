@@ -1,12 +1,12 @@
 # Pydantic AI：讓 LLM 應用開發像 FastAPI 一樣簡單
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Pydantic AI](https://img.shields.io/badge/Pydantic_AI-2.0-E92063.svg)](https://ai.pydantic.dev/)
+[![Pydantic AI](https://img.shields.io/badge/Pydantic_AI-2.55-E92063.svg)](https://pydantic.dev/docs/ai/overview/)
 [![Pydantic](https://img.shields.io/badge/Pydantic-2.x-E92063.svg)](https://docs.pydantic.dev/)
 
 * [Youtube Tutorial - Pydantic AI - AI 開發的 FastAPI 時刻！告別混亂解析 & 燒錢測試](https://youtu.be/mEwA5DeSFqU)
 
-- **官方文檔**：[https://ai.pydantic.dev/](https://ai.pydantic.dev/)
+- **官方文檔**：[https://pydantic.dev/docs/ai/overview/](https://pydantic.dev/docs/ai/overview/)
 
 - **GitHub 專案**：[https://github.com/pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai)
 

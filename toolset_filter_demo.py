@@ -10,7 +10,7 @@ Toolset 過濾範例（聚焦：用 filtered() 做唯讀安全白名單）
     - toolset.filtered(fn)：fn(ctx, tool_def) 回傳 True 才保留該工具
     - 想驗證護欄：await toolset.get_tools(ctx) 印出模型「真正看得到」的工具
 
-文檔參考：https://ai.pydantic.dev/toolsets/#filtering-tools
+文檔參考：https://pydantic.dev/docs/ai/tools-toolsets/toolsets/#filtering-tools
 
 執行前：
     1. 前往 https://build.nvidia.com/ 取得 API Key（格式 nvapi-...）

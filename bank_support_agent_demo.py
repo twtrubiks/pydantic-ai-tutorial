@@ -8,7 +8,7 @@ PydanticAI 銀行客服代理示範
 3. 工具系統與資料庫整合
 4. 結構化輸出與型別安全
 
-文檔參考：https://ai.pydantic.dev/agents/
+文檔參考：https://pydantic.dev/docs/ai/core-concepts/agent/
 """
 
 from dataclasses import dataclass

@@ -10,7 +10,7 @@ PydanticAI 工具系統示範 - 骰子遊戲範例 (使用 Anthropic Claude)
 5. 使用 Claude Haiku（便宜、Function Calling 穩定）
 
 Anthropic 文檔：https://platform.claude.com/docs/en/api/overview
-Pydantic AI 文檔：https://ai.pydantic.dev/tools/
+Pydantic AI 文檔：https://pydantic.dev/docs/ai/tools-toolsets/tools/
 """
 
 import random

@@ -8,7 +8,7 @@ PydanticAI 工具系統示範 - 骰子遊戲範例
 3. Function Calling 的自動選擇機制
 4. AI 如何根據對話內容決定使用哪些工具
 
-文檔參考：https://ai.pydantic.dev/tools/
+文檔參考：https://pydantic.dev/docs/ai/tools-toolsets/tools/
 """
 
 import random

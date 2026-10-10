@@ -10,7 +10,7 @@ PydanticAI 工具系統示範 - 骰子遊戲範例 (使用 OpenRouter)
 5. 使用 OpenRouter 訪問多種模型
 
 OpenRouter 文檔：https://openrouter.ai/docs
-Pydantic AI 文檔：https://ai.pydantic.dev/tools/
+Pydantic AI 文檔：https://pydantic.dev/docs/ai/tools-toolsets/tools/
 """
 
 import asyncio

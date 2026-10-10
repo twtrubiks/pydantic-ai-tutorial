@@ -12,7 +12,7 @@ Gemini 3 Thinking 控制範例（聚焦：降低 thinking 省錢）
     （若需要「完全關閉」思考，請改用 gemini-2.5-flash + thinking_budget=0。）
 
 文檔參考：
-    - thinking：https://ai.pydantic.dev/thinking/
+    - thinking：https://pydantic.dev/docs/ai/capabilities/thinking/
     - Gemini thinking：https://ai.google.dev/gemini-api/docs/thinking
 
 執行前：

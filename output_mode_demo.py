@@ -19,7 +19,7 @@ Pydantic AI 取得結構化輸出共有三種模式：
 模型沿用本專案其他 NVIDIA NIM 範例（output_validator_demo.py 等）的
 Nemotron（OpenAI 相容端點）。
 
-文檔參考：https://ai.pydantic.dev/output/#structured-output
+文檔參考：https://pydantic.dev/docs/ai/core-concepts/output/#structured-output
 """
 
 import asyncio

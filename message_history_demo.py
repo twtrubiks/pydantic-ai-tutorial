@@ -12,7 +12,7 @@ PydanticAI 多輪對話與訊息歷史示範 (使用 NVIDIA NIM)
 6. History Processor (V2 capabilities) - 只保留最近 N 則訊息以節省 token
 
 NVIDIA NIM：https://build.nvidia.com/
-Pydantic AI 文檔：https://ai.pydantic.dev/message-history/
+Pydantic AI 文檔：https://pydantic.dev/docs/ai/core-concepts/message-history/
 """
 
 import asyncio

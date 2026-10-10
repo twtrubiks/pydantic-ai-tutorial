@@ -12,7 +12,7 @@ Gemini Embedding 範例（聚焦：用向量相似度做語意搜尋）
     - EmbeddingSettings(dimensions=768) 可調向量維度（越大越精細，索引也越大）
 
 文檔參考：
-    - https://ai.pydantic.dev/embeddings/
+    - https://pydantic.dev/docs/ai/guides/embeddings/
     - Gemini embeddings：https://ai.google.dev/gemini-api/docs/embeddings
 
 執行前：
