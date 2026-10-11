@@ -7,6 +7,7 @@ ModelRetry 重試機制範例
 3. 不完整輸入的智能處理（如：兩個字找三個字）
 4. 使用限制防止無限重試
 5. 透過 result.all_messages() 觀察自我修正軌跡（print_retry_trace）
+6. 分開捕捉失敗原因：重試用完拋 UnexpectedModelBehavior、超過使用上限拋 UsageLimitExceeded
 
 三個場景：
 - 場景 1：查不存在用戶 → 工具回傳 None，不觸發重試（對照組）
@@ -22,7 +23,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext, ModelRetry
+from pydantic_ai import Agent, RunContext, ModelRetry, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import RetryPromptPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -221,8 +222,12 @@ async def test_retry_scenarios():
         # 對照組：沒有觸發重試，工具只會被呼叫一次
         print_retry_trace(result)
 
-    except Exception as e:
-        print(f"❌ 查詢失敗：{e}")
+    except UnexpectedModelBehavior as e:
+        # 工具的重試次數用完，模型還是沒給出可用的參數
+        print(f"❌ 重試次數用完：{e}")
+    except UsageLimitExceeded as e:
+        # 被 UsageLimits(request_limit=10) 擋下，避免模型無限重試
+        print(f"⛔ 超過使用上限：{e}")
 
     # 場景 2：不完整姓名查詢（兩個字找三個字，觸發 ModelRetry 修正輸入）
     print("\n\n📌 場景 2：不完整姓名查詢（兩個字 → 三個字）")
@@ -241,8 +246,12 @@ async def test_retry_scenarios():
         # 印出對話軌跡，觀察「兩個字 → 三個字」的自我修正
         print_retry_trace(result)
 
-    except Exception as e:
-        print(f"❌ 查詢失敗：{e}")
+    except UnexpectedModelBehavior as e:
+        # 工具的重試次數用完，模型還是沒給出可用的參數
+        print(f"❌ 重試次數用完：{e}")
+    except UsageLimitExceeded as e:
+        # 被 UsageLimits(request_limit=10) 擋下，避免模型無限重試
+        print(f"⛔ 超過使用上限：{e}")
 
     # 場景 3：API 服務不穩定（暫時性失敗，自動重試直到成功）
     print("\n\n📌 場景 3：調用不穩定的外部 API")
@@ -264,8 +273,12 @@ async def test_retry_scenarios():
         # 軌跡會看到 validate_external_api 被呼叫多次（前兩次失敗、第三次成功）
         print_retry_trace(result)
 
-    except Exception as e:
-        print(f"❌ 查詢失敗：{e}")
+    except UnexpectedModelBehavior as e:
+        # 工具的重試次數用完，模型還是沒給出可用的參數
+        print(f"❌ 重試次數用完：{e}")
+    except UsageLimitExceeded as e:
+        # 被 UsageLimits(request_limit=10) 擋下，避免模型無限重試
+        print(f"⛔ 超過使用上限：{e}")
 
 def explain_retry_mechanism():
     """說明重試機制"""
@@ -290,6 +303,7 @@ def explain_retry_mechanism():
     print("   • 提供明確的錯誤訊息和改進建議")
     print("   • 設定合理的重試次數（通常 2-3 次）")
     print("   • 使用 UsageLimits 防止無限重試")
+    print("   • 分開捕捉 UnexpectedModelBehavior（重試用完）與 UsageLimitExceeded（超過上限）")
     print("   • 智能處理不完整輸入（如兩個字補全為三個字）")
 
     print("\n5. 觀察自我修正：")

@@ -97,426 +97,226 @@ except:
 
 ### Pydantic AI 方式
 
-參考 [structured_review_extraction.py](structured_review_extraction.py)
+參考 [structured_review_extraction.py](structured_review_extraction.py)（使用 Google Gemini）
 
-這個範例展示如何使用 PydanticAI 將非結構化的影評文字轉換為結構化的 Python 物件。主要特色包括：
-
-**保證格式**：永遠返回 `FilmCriticReview` 物件
-
-**自動驗證**：評分自動限制在 1-10 之間
-
-**自動重試**：如果格式錯誤，AI 會自動重新生成(ModelRetry)
-
-**結構化輸出**：AI 輸出自動轉換為 Pydantic 模型物件
+- **保證格式**：`output_type=FilmCriticReview`，永遠拿到 Pydantic 模型物件
+- **自動驗證**：`Field(ge=1, le=10)` 把評分限制在 1-10 之間
+- **自動重試**：格式或驗證不合格時，會請模型重新產生
 
 ---
 
 ## 結構化輸出的三種模式：Output Mode
 
-上一個範例用 `output_type=FilmCriticReview` 就拿到結構化結果，但它背後其實有「怎麼讓模型吐出 JSON」的選擇。Pydantic AI 提供三種 output mode，差別在 schema 走哪條路、以及對端點的要求。
+上一個範例用 `output_type=FilmCriticReview` 就拿到結構化結果，背後其實可以選擇「怎麼讓模型吐出 JSON」。
 
 參考 [output_mode_demo.py](output_mode_demo.py)（使用 NVIDIA NIM）
 
-**三種模式**：
+- **ToolOutput（預設）**：用 tool calling 回傳結構化資料，相容性最廣，需要多工具混合呼叫時用它
+- **NativeOutput**：schema 走 API 的 `response_format`，端點支援原生結構化輸出時優先用它
+- **PromptedOutput**：把 schema 寫進 prompt，請模型自己回 JSON，任何模型都能用，但可靠度略低
 
-**ToolOutput（預設）**：用 tool calling 回傳結構化資料，相容性最廣（前面範例就是它）
+不論哪種模式，最後都會用 Pydantic 驗證，不合格就重試，重試用完才拋 `UnexpectedModelBehavior`。
 
-**NativeOutput**：schema 走 API 頂層 `response_format` / JSON schema（**預設不進 prompt**），只有端點支援原生結構化輸出時才會被「強制」
-
-**PromptedOutput**：把 JSON schema 塞進 prompt，請模型「自己」回 JSON，**任何模型都能用**，但純靠提示約束、可靠度略低
-
-**核心做法**：
-
-**指定模式**：`output_type=NativeOutput(Recipe)` 或 `output_type=PromptedOutput(Recipe)`，不指定則為預設 ToolOutput
-
-**同一結構、兩種模式**：範例用同一個 `Recipe` 資料結構分別跑 NativeOutput 與 PromptedOutput，證明兩者都能得到同樣型別的結構化結果
-
-**都有安全網**：兩種模式模型「都可能不遵守」（Native 端點不支援會被忽略、Prompted 模型可能回非預期格式），但不論哪種，pydantic_ai 最後都會用 Pydantic 驗證回傳值，不合就重試，重試用完才拋 `UnexpectedModelBehavior`——不會默默把壞資料丟給你
-
-**NVIDIA 端點的坑**：NVIDIA NIM 會依 schema 強制 JSON 格式，卻不把 schema 給模型看（輸入只有約 69 token）。Nemotron 不知道欄位意思只能硬填，實測會出現料理名稱帶「(2 人份)」、食材清單混進 `':材料:'`、`'- 番茄…'` 這類雜訊。只改 `Field(description=...)` 沒用，因為模型根本看不到。解法是用 `NativeOutput(Recipe, template="請依照這個 JSON schema 回答：\n{schema}")` 把 schema 也放進 prompt，pydantic-ai 的 vLLM provider 也是這樣處理。同樣的 `Recipe` 換成 Claude Haiku 則不需要 template，Anthropic 會自己把 schema 交給模型
-
-**怎麼選**：
-
-- 端點支援原生結構化輸出（`response_format` json_schema）→ 優先 **NativeOutput**
-- 端點不支援 tool / 原生 JSON、或想最大相容 → **PromptedOutput**
-- 需要多工具混合呼叫的流程 → 維持預設 **ToolOutput**
+**NVIDIA 的坑**：NativeOutput 在 NVIDIA NIM 上不會把 schema 給模型看，欄位容易亂填，要用 `NativeOutput(Recipe, template=...)` 把 schema 放進 prompt（Claude 不需要）
 
 ---
 
 ## 工具的威力：骰子遊戲範例
 
-傳統的 Function Calling 實現起來很繁瑣，但 Pydantic AI 讓它變得優雅：
+用 `@agent.tool` 裝飾器就能把函式註冊成工具，模型會依使用者輸入自己決定何時呼叫。函式的 docstring 就是工具描述，參數會透過 Pydantic 自動驗證。
 
-以下範例都是一樣的, 只是模型不同
+以下三個範例內容相同，只是模型不同：
 
-[tools_demo.py](tools_demo.py) - 基本骰子遊戲工具展示
+- [tools_demo.py](tools_demo.py) - Google Gemini
+- [tools_demo_openrouter.py](tools_demo_openrouter.py) - OpenRouter 免費模型
+- [tools_demo_claude.py](tools_demo_claude.py) - Anthropic Claude Haiku
 
-[tools_demo_openrouter.py](tools_demo_openrouter.py) - 使用 OpenRouter 的工具範例
-
-[tools_demo_claude.py](tools_demo_claude.py) - 使用 Anthropic Claude（Haiku）的工具範例
-
-**工具調用支援說明**：
-
-**OpenAI 模型**：Function Calling 原生支援，表現最穩定（推薦）
-
-**Google Gemini**：`gemini-3-flash-preview` 工具調用表現不夠穩定
-
-**OpenRouter 免費模型**：變動頻繁，常見狀況有被上游限流（429）、改為付費（404）、只開放給特定應用（403）。範例目前使用 `cohere/north-mini-code:free`，失效時可到 <https://openrouter.ai/models> 篩選「免費 + 支援 tools」的模型替換
-
-**NVIDIA Nemotron**：呼叫無參數工具（如 `roll_dice()`）時會自己編參數，被參數驗證擋下後超過重試上限，所以 `tools_demo_claude.py` 和 `error_handling_demo.py` 改用 Claude
-
-**Anthropic Claude**：`claude-haiku-5-5` 便宜，工具呼叫（含無參數工具）穩定，收到 ModelRetry 提示也會照著修正
-
-**核心特色**：
-
-**工具定義簡單**：用 `@agent.tool` 裝飾器就能註冊函數為工具
-
-**AI 自主決策**：模型根據用戶輸入自動判斷何時調用哪個工具
-
-**文檔字符串重要**：函數的 docstring 成為工具描述，幫助 AI 理解工具用途
-
-**參數自動驗證**：工具參數透過 Pydantic 自動驗證和轉換
+**模型差異**：OpenRouter 免費模型常被限流或改為付費，失效時到 <https://openrouter.ai/models> 篩選「免費 + 支援 tools」的模型替換；NVIDIA Nemotron 呼叫無參數工具（如 `roll_dice()`）會自己編參數而失敗，所以 `tools_demo_claude.py` 和 `error_handling_demo.py` 改用 Claude
 
 ---
 
 ## 生產級系統：銀行客服支援
 
-這個完整的銀行客服範例展示了 Pydantic AI 如何整合所有核心功能，建構一個真正的生產級 AI 系統。
+把依賴注入、動態系統提示、工具和結構化輸出組在一起的完整範例。
 
 參考 [bank_support_agent_demo.py](bank_support_agent_demo.py)（使用 NVIDIA NIM）
 
-**技術架構解析**：
-
-**依賴注入**：使用 `SupportDependencies` 類別封裝客戶 ID 和 `DatabaseConn`，透過 `RunContext[SupportDependencies]` 型別安全地傳遞
-
-**多層動態提示**：兩個系統提示函數自動組合 - `add_customer_name()` 查詢客戶姓名、`add_customer_status()` 識別 VIP 身份
-
-**智能工具調用**：`customer_balance()` 工具讓 AI 主動查詢餘額，支援 `include_pending` 參數控制是否包含待處理交易
-
-**結構化輸出**：`SupportOutput` 模型定義回應格式，包含 `support_advice`（建議）、`block_card`（封卡決策）和 `risk`（0-10 風險等級）
+- **依賴注入**：`RunContext[SupportDependencies]` 型別安全地傳遞客戶 ID 和資料庫連線
+- **動態系統提示**：`@agent.system_prompt` 依客戶資料組出提示，例如 VIP 身份
+- **結構化輸出**：`SupportOutput` 包含建議、是否封卡、風險等級
 
 ---
 
 ## 錯誤處理與重試機制
 
-展示 Pydantic AI 的 ModelRetry 功能，包括智能處理不完整輸入和自動重試機制。
+在工具裡 `raise ModelRetry('提示')`，模型會帶著提示重新呼叫工具，例如查「張小」時引導它改用完整姓名「張小華」。
 
 參考 [error_handling_demo.py](error_handling_demo.py)（使用 Anthropic Claude）
 
-**多層重試架構**：
-
-**工具層級重試**：`@user_agent.tool(retries=2)` 針對 `get_user_by_name()` 設定重試次數，`@user_agent.tool(retries=3)` 針對 `validate_external_api()` 設定 API 重試
-
-**Agent 全域重試**：`Agent(..., retries=2)` 設定整體對話的重試次數上限
-
-**使用限制保護**：`UsageLimits(request_limit=10)` 防止無限重試消耗過多 token
-
-**智能錯誤引導（學習機制）**：
-
-**兩個字找三個字**：當查詢「張小」這種兩個字姓名時，系統會使用 `ModelRetry` 找到「張小華」並引導 AI 使用完整姓名重試
-
-**不存在用戶處理**：查詢「小明」等不存在用戶時，直接返回 None 並在 message 中說明用戶不存在
-
-**模擬 API 失敗**：`validate_api_service()` 前兩次故意失敗，第三次成功，展示自動重試直到成功的機制
-
-**自我修正軌跡（`print_retry_trace()`）**：走訪 `result.all_messages()` 把 `ToolCallPart`／`RetryPromptPart`／`ToolReturnPart` 印出來，用「工具被呼叫 > 1 次」證明 AI 真的收到回饋後重試；場景 1（不存在用戶）只呼叫 1 次，剛好是「沒有觸發重試」的對照。
+- **重試次數**：`@agent.tool(retries=2)` 設定單一工具，`Agent(..., retries=2)` 設定整體
+- **使用上限**：`UsageLimits(request_limit=10)` 防止無限重試燒 token
+- **分開捕捉**：重試用完拋 `UnexpectedModelBehavior`，超過使用上限拋 `UsageLimitExceeded`
+- **看重試軌跡**：從 `result.all_messages()` 找 `RetryPromptPart`，確認模型真的收到回饋後重試
 
 ---
 
 ## 輸出驗證層：output_validator
 
-`ModelRetry` 不只能用在工具層，也能用在「最終輸出」這一層。`@agent.output_validator` 會在 AI 組裝出**結構化輸出之後**再做一次語意驗證，專門處理 Pydantic `Field` 驗證做不到的「跨欄位邏輯」。
+`ModelRetry` 也能用在最終輸出。`@agent.output_validator` 在模型組好結構化輸出後再檢查一次，處理 Pydantic `Field` 做不到的跨欄位邏輯，例如「有 email 就必須有 name」。
 
 參考 [output_validator_demo.py](output_validator_demo.py)（使用 NVIDIA NIM）
 
-**與工具層 ModelRetry 的差異**：
-
-**工具層**：驗證單一工具的輸入／執行（如 `error_handling_demo.py` 的 `@tool(retries=2)`）
-
-**輸出層**：驗證 AI 組裝出來的最終結果，做跨欄位一致性檢查
-
-**範例的兩條驗證規則**：
-
-**規則 1（自相矛盾）**：輸出有 `email` 卻沒有 `name` → `raise ModelRetry` 要求補上完整姓名
-
-**規則 2（跨欄位一致）**：查到用戶時，`message` 必須包含其 `email` → 否則 `raise ModelRetry` 引導 AI 把 email 寫進 message
-
-**運作重點**：
-
-- 驗證不通過時 `raise ModelRetry`，AI 會帶著提示重新生成「整包輸出」，最多重試次數由 `Agent(..., retries=2)` 控制
-- 若模型第一次輸出就符合規則，validator 直接放行（安全閘的正確行為，不會強制重試）
-- 可透過 `result.all_messages()` 觀察 `RetryPromptPart`，看見輸出層自我修正的完整軌跡
-
-**NVIDIA NIM 接入方式**：透過 `OpenAIChatModel` + `OpenAIProvider(base_url="https://integrate.api.nvidia.com/v1", api_key=...)`，以 OpenAI 相容介面呼叫 Nemotron 等模型。
+- **工具層 vs 輸出層**：工具層驗證單一工具的輸入，輸出層驗證整包結果
+- **不通過就重試**：`raise ModelRetry`，模型會重新產生整包輸出，次數由 `Agent(..., retries=2)` 控制
 
 ---
 
 ## 架構擴展：多代理協作
 
-簡化的多代理協作範例，展示 PydanticAI 的核心優勢：結構化輸出驗證、代理間資料傳遞和異步處理能力。
+研究代理產生結構化結果，交給審查代理檢查，代理之間用 Pydantic 模型傳遞資料。
 
-參考 [simple_multi_agent.py](simple_multi_agent.py)
+參考 [simple_multi_agent.py](simple_multi_agent.py)（使用 Google Gemini）
 
-**核心特性展示**：
-
-- **結構化輸出與自動驗證**：
-  - `ResearchResult`：包含主題、關鍵發現（1-5個）、信心分數（0-1）和審查需求
-  - `ReviewResult`：包含審查結果、回饋意見和改進建議
-  - 使用 Pydantic Field 驗證（`min_length`, `max_length`, `ge`, `le`）確保資料品質
-
-- **兩階段工作流程**：
-  - **研究代理**：分析主題並產生結構化研究結果，配備 `calculate_confidence()` 和 `get_current_time()` 工具函數
-  - **審查代理**：基於研究結果進行品質審查，提供建設性回饋（僅在需要時執行）
-
-**實作優勢**：
-
-- **簡潔的協調邏輯**：`coordinate_agents()` 函數展示清晰的代理間資料流
-- **異步批次處理**：使用 `asyncio.gather()` 平行處理多個主題，提升效能
-- **自動錯誤處理**：每個階段都有 try-catch 區塊，確保部分失敗不影響整體流程
-- **類型安全**：所有資料傳遞都有明確的類型定義，減少執行時錯誤
-- **自動重試限流（429）**：`GoogleProvider(retry_options=HttpRetryOptions(...))` 讓 google-genai SDK 遇到 429 / 5xx 時自動等待再重試（指數退避，最長等 60 秒）
-
-**免費額度提醒**：Gemini 免費 key 有每分鐘請求數上限，範例 2 用 `asyncio.gather()` 一次送出多個請求，很容易收到 429。範例已加上 `retry_options`，實測免費 key 的結果是 10 個請求成功、8 次 429 自動重試，約 1.5 分鐘跑完，3 個主題全部成功。付費 key 不會碰到 429，執行速度不受影響。更通用、跨 provider 的做法可參考官方文件的 [transport retries](https://pydantic.dev/docs/ai/core-concepts/retries/#transport-retries)。
+- **結構化傳遞**：`ResearchResult`、`ReviewResult` 用 `Field` 限制欄位範圍，傳給下一個代理前就驗證過
+- **並行處理**：`asyncio.gather()` 同時處理多個主題
+- **自動重試 429**：`GoogleProvider(retry_options=HttpRetryOptions(...))` 遇到限流自動等待重試，Gemini 免費 key 並行時很容易碰到；跨 provider 的做法見 [transport retries](https://pydantic.dev/docs/ai/core-concepts/retries/#transport-retries)
 
 ---
 
 ## 連接外部工具：MCP Client（Odoo）
 
-Pydantic AI 可以作為 **MCP Client**，把「已經獨立跑起來」的 MCP server 當成一組工具掛上 Agent。server 暴露的工具會自動變成 LLM 可呼叫的工具，Agent 完全不需要知道背後是 Odoo / XML-RPC。
+Pydantic AI 可以當 MCP Client，把 MCP server 提供的工具直接掛到 Agent 上，Agent 不需要知道背後是 Odoo。
 
-參考 [mcp_client_demo.py](mcp_client_demo.py)（使用 NVIDIA NIM；連線 Odoo MCP server）
+參考 [mcp_client_demo.py](mcp_client_demo.py)（使用 NVIDIA NIM）
 
-**核心做法**：
+- **掛上 server**：`Agent(model, toolsets=[MCPToolset("http://localhost:8000/mcp")])`
+- **開關連線**：在 `async with agent:` 區塊內執行 `agent.run()`
+- **多來源混用**：本地工具和多個 MCP server 會合併成一份清單，撞名用 `.prefixed("odoo")`
 
-**掛上 MCP server**：用 `MCPToolset("http://localhost:8000/mcp")` 連到 Streamable HTTP 端點，再放進 `Agent(model, toolsets=[odoo_mcp])`
-
-**自動開關連線**：所有 `agent.run(...)` 都要在 `async with odoo_agent:` 區塊內執行，進入時開啟、離開時自動關閉 MCP 連線
-
-**多來源混用**：本地函式工具（`tools=[...]`／`@agent.tool`）與多個 MCP server（`toolsets=[a_mcp, b_mcp]`）會合併成同一份工具清單；撞名用 `.prefixed("odoo")`，工具太多用 `.filtered()`／`.prepared()` 收斂
-
-**呼叫軌跡**：透過 `result.all_messages()` 觀察 `ToolCallPart`／`ToolReturnPart`，看 LLM 實際呼叫了哪些 MCP 工具
-
-> **執行前提**：本範例只是 client 端，需先自行把 Odoo MCP server 用 HTTP transport 跑起來（server 來源：<https://github.com/twtrubiks/odoo19-mcp-server>）。Odoo 連線資訊設在 server 端，client 端只需 `ODOO_MCP_URL` 端點（預設 `http://localhost:8000/mcp`）。
+> 執行前要先把 [Odoo MCP server](https://github.com/twtrubiks/odoo19-mcp-server) 用 HTTP transport 跑起來。
 
 ---
 
 ## 安全護欄：Toolset 過濾（filtered）
 
-把工具過濾當成「安全護欄」——用 `filtered()` 從完整工具集衍生出「唯讀版」，危險的寫入工具直接不會出現在送給模型的工具清單裡。模型不是被勸退，而是「無從呼叫」，比在 system prompt 叮嚀「不要刪資料」可靠得多。
+用 `filtered()` 從完整工具集衍生出唯讀版，寫入工具不會出現在送給模型的清單裡。模型根本無從呼叫，比在 prompt 叮嚀「不要刪資料」可靠。
 
 參考 [toolset_filter_demo.py](toolset_filter_demo.py)（使用 NVIDIA NIM）
 
-**核心做法**：
-
-**衍生受限工具集**：`employee_toolset.filtered(lambda ctx, tool_def: (tool_def.metadata or {}).get("access") == "read")`，只放行唯讀工具
-
-**用 metadata 標記**：`@toolset.tool(metadata={"access": "read"/"write"})` 標記工具屬性，過濾邏輯就不必硬編工具名稱
-
-**護欄在工具集層**：被擋掉的工具不會進入送給模型的清單，模型根本看不到、也就無從呼叫
-
-**驗證生效**：`await toolset.get_tools(ctx)` 印出模型「真正看得到」的工具——場景 A（完整工具集）看得到刪除工具、資料真的被刪；場景 B（filtered）看不到、資料安然無恙
+- **用 metadata 標記**：`@toolset.tool(metadata={"access": "read"})`，過濾時不必寫死工具名稱
+- **依標記過濾**：`toolset.filtered(lambda ctx, tool_def: (tool_def.metadata or {}).get("access") == "read")`
 
 ---
 
 ## 安全護欄：工具核准（Human-in-the-Loop）
 
-Toolset 過濾是讓模型「完全看不到」危險工具；但有些操作本來就該讓模型做，只是執行前要先問過人，例如大額轉帳、關閉帳戶。工具核准讓模型照常呼叫工具，Pydantic AI 會先攔下來等人決定，核准才真的執行，拒絕就把原因交給模型，讓它跟使用者解釋。
+有些操作該讓模型做，但執行前要先問過人，例如大額轉帳、關閉帳戶。模型照常呼叫工具，Pydantic AI 先攔下來，核准才執行，拒絕就把原因交給模型。
 
 參考 [tool_approval_demo.py](tool_approval_demo.py)（使用 Anthropic Claude Haiku，執行時會在終端機問你 y/N）
 
-**兩種要求核准的寫法**：
+- **每次都要核准**：`Tool(close_account, requires_approval=True)`
+- **依參數決定**：在工具裡 `raise ApprovalRequired(...)`，例如轉帳超過 1,000 元才要核准
+- **暫停式**：`output_type=[str, DeferredToolRequests]`，run 先結束，存下 `result.conversation`，審核後用 `agent.run(conversation=..., deferred_tool_results=...)` 接著跑，適合核准的人不在線上
+- **中途核准**：`capabilities=[HandleDeferredToolCalls(handler)]`，run 進行中直接問人，適合核准的人就在程式旁邊
 
-**每次都要核准**：`Tool(close_account, requires_approval=True)`，適合刪除、關帳戶這類不可逆操作
-
-**依參數決定**：在工具裡 `raise ApprovalRequired(metadata={'reason': ...})`，例如轉帳超過 1,000 元才要核准。核准後 Pydantic AI 會用同樣參數再呼叫一次，這時 `ctx.tool_call_approved` 為 `True`，工具就放行
-
-**兩種處理方式**：
-
-**A. 暫停式**：`output_type=[str, DeferredToolRequests]`，遇到要核准的呼叫，run 會先結束、`result.output` 是 `DeferredToolRequests`。把 `result.conversation` 存起來，等人審核後讀回，用 `agent.run(conversation=..., deferred_tool_results=...)` 接著跑。適合核准的人不在線上（主管隔天審核、前端按鈕）。實測「轉 500 給媽媽、30,000 給房東」：500 元當下就轉了，30,000 元暫停，存檔讀回核准後才轉出
-
-**B. 中途核准（V2 新增）**：`capabilities=[HandleDeferredToolCalls(handler)]`，run 進行中直接呼叫 handler 問人，一次 run 跑完，`output_type` 也不必加 `DeferredToolRequests`。適合核准的人就在程式旁邊。實測「查餘額、轉 2,000 給房東、關閉帳戶」：handler 被呼叫兩次，轉帳核准、關帳戶拒絕，模型如實回報帳戶沒有關閉
-
-**回覆核准結果**：`True`、`ToolApproved(override_args=...)`（核准並修改參數）或 `ToolDenied('訊息')`（拒絕，訊息會交給模型）；用 `requests.build_results(approvals=...)` 組裝，會檢查每個 `tool_call_id` 都對得上
-
-**暫停時要存 Conversation**：`result.conversation` 會連同 `deferred_tool_requests` 和 metadata 一起存。只存 messages 的話，讀回來分不出哪個呼叫在等核准、為什麼要核准
-
-**核准不是權限控管**：它防的是模型自作主張，不是惡意的使用者；敏感操作在工具裡仍要自己檢查權限
+**注意**：核准防的是模型自作主張，不是權限控管，敏感操作在工具裡仍要自己檢查權限
 
 ---
 
 ## 網頁聊天介面：agent.to_web()
 
-`agent.to_web()` 一行就把 agent 變成瀏覽器聊天室：有串流回覆、工具呼叫的參數與回傳值、模型切換選單，需要核准的工具也會變成「Approve / Deny」按鈕。範例直接沿用上一節的銀行轉帳 agent，終端機的 y/N 在網頁上就變成按鈕。
+`agent.to_web()` 一行把 agent 變成瀏覽器聊天室，有串流回覆、工具呼叫紀錄、模型切換，需要核准的工具會變成 Approve / Deny 按鈕。範例沿用上一節的銀行轉帳 agent。
 
-參考 [web_chat_demo.py](web_chat_demo.py)（預設 Claude Haiku，有設定 `GOOGLE_API_KEY` 會多出 Gemini 3 Flash 可切換），執行後打開 <http://127.0.0.1:7932>
+參考 [web_chat_demo.py](web_chat_demo.py)（使用 Claude Haiku，有 `GOOGLE_API_KEY` 可切換 Gemini），執行後打開 <http://127.0.0.1:7932>
 
-**核心做法**：
-
-**建立 app**：`app = agent.to_web(models={'Claude Haiku 5.5': haiku, 'Gemini 3 Flash': gemini}, deps=Bank())`，回傳 Starlette app，用 `uvicorn.run(app, host='127.0.0.1', port=7932)` 啟動；`pip install pydantic-ai` 預設已包含 `web` extra（Starlette + Uvicorn），不用另外裝
-
-**核准按鈕要加 output_type**：官方文件說「不需額外設定」，但實測 agent 沒有 `output_type=[str, DeferredToolRequests]` 的話，一遇到要核准的工具就會顯示錯誤。網頁走的是暫停式流程：run 先結束，按下按鈕後再接續
-
-**deps 是全站共用**：`to_web(deps=...)` 的物件給所有請求共用，伺服器沒關之前餘額會一直延續；正式應用要依使用者區分
-
-**實測**（用 Playwright 開無頭 Chrome 操作）：Haiku「轉 500 給媽媽、3,000 給房東」→ 500 直接完成、3,000 出現 Approve 按鈕，核准後餘額 46,500；切到 Gemini「查餘額、關閉帳戶」→ 按 Deny，模型回覆帳戶沒有關閉。Haiku 呼叫工具前的過場句常是英文，最後的回答才是中文，這是模型習慣，instructions 再強調也沒用
-
-**注意**：只適合本機開發與除錯，正式產品請用 [UI Event Stream](https://pydantic.dev/docs/ai/integrations/ui/overview/)（Vercel AI / AG-UI）接自己的前端。預設只接受 localhost 或 IP 的 `Host`（防 DNS rebinding），核准按鈕也不是權限控管，不要直接對外公開。畫面上的「Effort」選單在 2.55 的伺服器端沒有處理（查過原始碼），模型設定以程式裡的 `model_settings` 為準
+- **核准按鈕**：agent 的 `output_type` 必須包含 `DeferredToolRequests`，否則遇到要核准的工具會報錯
+- **只適合本機開發**：正式產品請用 [UI Event Stream](https://pydantic.dev/docs/ai/integrations/ui/overview/)（Vercel AI / AG-UI）接自己的前端
 
 ---
 
 ## 省錢開關：Gemini Thinking 控制
 
-Gemini 3 系列預設會「思考」（thinking），思考會額外消耗 token、增加延遲。這個範例直接對比「高思考（HIGH）」與「最省思考（MINIMAL）」，用 token 數與耗時證明降低思考等級後更省、更快。
+Gemini 3 預設會思考，會多花 token 和時間。範例對比 HIGH 與 MINIMAL 的 token 數和耗時。
 
-參考 [gemini_thinking_demo.py](gemini_thinking_demo.py)
+參考 [gemini_thinking_demo.py](gemini_thinking_demo.py)（使用 Google Gemini）
 
-**核心做法**：
-
-**省錢開關**：用 `GoogleModelSettings(google_thinking_config={"thinking_level": "MINIMAL"})` 把思考降到最低
-
-**思考等級**：`thinking_level` 由低到高為 `MINIMAL < LOW < MEDIUM < HIGH`，等級越高思考越多、越貴
-
-**思考摘要**：`include_thoughts=True` 會把思考內容一併回傳，方便在 `result.all_messages()` 軌跡裡看到 `ThinkingPart`
-
-**省錢證據**：透過 `result.usage.details["thoughts_tokens"]` 觀察思考 token 在 MINIMAL 時大幅下降，搭配耗時對比一目了然
-
-**模型差異**：本範例使用 `gemini-3-flash-preview`。Gemini 3 系列以 `thinking_level`（MINIMAL／LOW／MEDIUM／HIGH）控制思考強度，**無法完全關閉**思考（沒有 `budget=0`），MINIMAL 即為最省等級。若需要「完全關閉」思考，要改用 `gemini-2.5-flash` 搭配 `thinking_budget=0`。
+- **調整等級**：`GoogleModelSettings(google_thinking_config={"thinking_level": "MINIMAL"})`，由低到高為 MINIMAL／LOW／MEDIUM／HIGH
+- **看思考 token**：`result.usage.details["thoughts_tokens"]`
+- **無法完全關閉**：Gemini 3 最低只到 MINIMAL，要完全關閉得改用 `gemini-2.5-flash` 搭配 `thinking_budget=0`
 
 ---
 
 ## 語意向量：Embeddings 與相似度搜尋
 
-Embedding 把文字轉成向量，讓「語意接近」變成「向量接近」，是語意搜尋、推薦、分群、RAG 的基礎。這個範例用 Pydantic AI 的 `Embedder` 把句子向量化，再用 cosine 相似度從候選句子裡找出與查詢語意最接近的。
+Embedding 把文字轉成向量，語意接近的句子向量也接近，是語意搜尋和 RAG 的基礎。
 
-參考 [gemini_embedding_demo.py](gemini_embedding_demo.py)
+參考 [gemini_embedding_demo.py](gemini_embedding_demo.py)（使用 Google Gemini）
 
-**核心做法**：
-
-**統一介面**：`Embedder(GoogleEmbeddingModel("gemini-embedding-2", provider=GoogleProvider(api_key=...)))`，換 provider 不用改呼叫方式
-
-**查詢 vs 內容**：`embed_query()` 給查詢、`embed_documents()` 給被檢索的內容；某些模型會分別最佳化，分開呼叫語意更準
-
-**取向量**：`result.embeddings[i]` 就是第 i 句的向量（一串 float）
-
-**調維度**：`EmbeddingSettings(dimensions=768)` 控制向量維度——越大越精細，索引也越大、越慢
-
-**相似度**：用 cosine 相似度（1 ≈ 語意相同、0 ≈ 不相關）排序，即得語意搜尋結果
+- **統一介面**：`Embedder(GoogleEmbeddingModel(...))`，換 provider 不用改呼叫方式
+- **查詢 vs 內容**：查詢用 `embed_query()`，被檢索的內容用 `embed_documents()`
+- **調維度**：`EmbeddingSettings(dimensions=768)`，越大越精細，索引也越大
 
 ---
 
 ## 即時體驗：串流輸出（Streaming）
 
-不必等模型「整段講完」才看到結果——串流讓第一個字一出來就能顯示，對長文、即時對話與進度感很有幫助。這個範例展示兩種串流：文字／Markdown 串流（打字機效果），以及結構化資料串流（一邊生成、一邊做部分驗證，表格即時長出來）。
+不用等模型講完，第一個字出來就能顯示。範例示範文字串流和結構化資料串流。
 
 參考 [streaming_demo.py](streaming_demo.py)（使用 NVIDIA NIM）
 
-**核心做法**：
-
-**開啟串流**：`async with agent.run_stream(prompt) as result:`
-
-**累積輸出**：`result.stream_output()` 每次給「累積到目前」的完整輸出（文字或結構化）；`result.stream_output(debounce_by=0.01)` 控制畫面更新頻率
-
-**只取新增片段**：`result.stream_text(delta=True)` 只回傳「這次新增」的文字片段
-
-**部分驗證**：`output_type=list[Whale]`（TypedDict + `NotRequired`）讓結構化串流途中欄位可「先缺著」，取值用 `.get()` 並給預設值
-
-**小提醒**：`usage`（用量）要等串流結束才會是完整數字
-
-> 本範例用 `rich` 的 `Live` 即時渲染（pydantic-ai 的 cli extra 已帶入 rich，`requirements.txt` 亦明列）。
+- **開啟串流**：`async with agent.run_stream(prompt) as result:`
+- **取輸出**：`result.stream_output()` 每次給累積到目前的完整輸出；`result.stream_text(delta=True)` 只給新增的片段
+- **結構化串流**：用 TypedDict + `NotRequired`，欄位在串流途中可以先缺著
 
 ---
 
 ## 多輪對話：訊息歷史與記憶（Message History）
 
-預設每次 `agent.run()` 都是「全新對話」——模型不會記得上一輪講過什麼。要做出能連續聊天的應用，關鍵就是把先前的對話用 `message_history=` 餵回去。這個範例展示三件事：① 無記憶 vs 有記憶的對比、② 用 `Conversation` 把整段對話存成 JSON、下次再讀回來接著聊（跨 session 持久化）、③ 用 History Processor 控制送出的訊息量來省 token。
+每次 `agent.run()` 預設都是全新對話，要讓模型記得前文，就要把先前的對話傳回去。
 
 參考 [message_history_demo.py](message_history_demo.py)（使用 NVIDIA NIM）
 
-**核心做法**：
-
-**延續對話**：`agent.run(prompt, message_history=previous_messages)`，傳入歷史後,系統提示沿用歷史裡那份、不重新生成
-
-**取出訊息**：`result.all_messages()` 取完整歷史（含先前所有 run）；`result.new_messages()` 只取本輪新增
-
-**整段對話打包（V2.55 建議寫法）**：`agent.run(prompt, conversation=result.conversation)`。`Conversation` 把 messages、usage、`conversation_id`、待核准的工具呼叫打包在一起，取代分別傳 `message_history=` / `usage=` / `conversation_id=`（同時傳會報錯）
-
-**存檔／讀回**：`ConversationTypeAdapter.dump_json(conversation)` 序列化成 JSON bytes，`ConversationTypeAdapter.validate_json(data)` 還原，即可跨 session 接續對話；只想存訊息的話，舊的 `ModelMessagesTypeAdapter` 仍可用
-
-**usage 跟著對話累積**：用 `conversation=` 接續時，`result.usage` 會包含先前每一輪（實測第三輪 `usage.requests` = 3）；只傳 `message_history=` 的話每次都從 0 重算，`UsageLimits` 就管不到整段對話的總量
-
-**對話關聯**：同一段對話的多次 run 共享同一個 `result.conversation_id`，即使存檔讀回也不變，方便在 Logfire 等工具追蹤
-
-**省 token（V2 特性）**：`Agent(model, capabilities=[ProcessHistory(fn)])` 在每次送出前處理歷史；範例用「只保留最近 N 則」，避免 input token 隨對話無限膨脹（注意 V2 改用 `capabilities=`，V1 的 `history_processors=` 參數已移除）
-
-**小提醒**：裁切或摘要歷史時，要確保 tool call 與其 return 成對出現，否則模型可能報錯（純文字對話無此問題）
+- **接續對話**：`agent.run(prompt, conversation=result.conversation)`，會一起帶上訊息、usage 和 `conversation_id`
+- **存檔／讀回**：`ConversationTypeAdapter.dump_json()` / `validate_json()`，下次執行可以接著聊
+- **省 token**：`capabilities=[ProcessHistory(fn)]` 只保留最近 N 則；裁切時 tool call 和它的 return 要成對保留
 
 ---
 
 ## Claude 專屬：Prompt Caching 與快取診斷
 
-多輪對話每一輪都會把「工具定義 + instructions + 先前對話」整包重送，手冊、程式碼這類長前綴每輪都要重新付費。Prompt caching 讓重複的前綴從快取讀回，只收 0.1 倍輸入價（部分模型更低）。OpenAI、Gemini 會自動快取，**Anthropic 預設什麼都不快取**，要在請求裡標記快取斷點才會生效。這個範例展示三件事：① 同一段對話開快取 vs 沒開的 token 帳單與美金對比、② 用 Claude API 專屬的 cache diagnostics 找出「快取為什麼沒命中」、③ 用 `cost_limit` 直接以美金設預算上限。
+多輪對話每一輪都會把工具定義、instructions、先前對話整包重送。Anthropic 預設不快取，要標記快取斷點才會生效，快取讀取只收 0.1 倍輸入價（部分模型更低）。
 
-參考 [claude_cache_demo.py](claude_cache_demo.py)（使用 Anthropic Claude，需要 pydantic-ai >= 2.55）
+參考 [claude_cache_demo.py](claude_cache_demo.py)（使用 Anthropic Claude）
 
-**核心做法**：
+- **開快取**：`Agent(model, capabilities=[Caching()])`，斷點自動放好
+- **看效果**：`result.usage.cache_write_tokens`、`cache_read_tokens`；`result.usage.cost` 會算出美金
+- **快取診斷**：`AnthropicModelSettings(anthropic_cache_diagnostics=True)`，沒命中時會告訴你原因（換模型、改 system、改工具等）
+- **用美金設上限**：`UsageLimits(cost_limit=Decimal('0.01'))`
 
-**一行開快取**：`Agent(model, capabilities=[Caching()])`，等同 `model_settings={'cache': True}`；Pydantic AI 會自動在工具定義、instructions、對話尾端放斷點（Anthropic 上限 4 個，自動管理）
-
-**計價**：5 分鐘快取寫入 1.25 倍、讀取 0.1 倍（Sonnet／Opus 5.5 為 0.05 倍、Fable 5.1 為 0.025 倍，範例依 `MODEL_NAME` 自動套用），被讀回一次就回本，對話越長越省；`Caching(retention='1h')` 寫入 2 倍，要讀回兩次才回本
-
-**看效果**：`result.usage.cache_write_tokens`、`cache_read_tokens`、`cache_hit_ratio`；注意 `input_tokens` 已包含快取讀寫
-
-**最小長度**：前綴低於模型的最小可快取長度（Haiku／Sonnet／Opus 5.5 與 Fable 5.1 為 512 token，較舊的模型為 1,024～4,096 token）就不會被快取，讀寫都是 0，而且不會報錯
-
-**快取診斷（V2.55 新增）**：`AnthropicModelSettings(anthropic_cache_diagnostics=True)`，沒命中時 `ModelResponse.provider_details['cache_diagnostics']` 會寫出原因（`model_changed` / `system_changed` / `tools_changed` / `messages_changed`）與少讀了多少 token；免費、不影響快取，只在 Claude API 有效
-
-**快取殺手**：instructions 放到秒的時間戳、對話中途增減工具、中途換模型，都會讓前綴改變；Claude 5.x 開著 thinking 時改前綴，還可能直接回 400（thinking block 綁定前綴）
-
-**只快取固定前綴**：大量一次性問答共用長 instructions 時，用 `Caching(messages=False)`，避免每段對話都付寫入費卻沒被讀回
-
-**費用追蹤（V2 內建）**：`result.usage.cost` 是用 [genai-prices](https://github.com/pydantic/genai-prices) 價格表估算的美金（`Decimal`），快取讀寫、輸出 token 都算進去。實測兩輪合計：沒開快取 $0.001689、開快取 $0.001135，省約 33%，跟等價 token 的 32% 吻合。查不到價格的模型（例如 NVIDIA NIM）會是 `None`，不是 0
-
-**用美金設預算**：`UsageLimits(cost_limit=Decimal('0.01'))`，超過就丟 `UsageLimitExceeded`。預設在**回應後**才檢查，請求已經送出、已經計費；加上 `count_tokens_before_request=True` 會先呼叫 token 計數 API 估算輸入費用，超過就不送出（錯誤訊息會變成 `The next request would exceed ...`）。這只是估算，要搭配 `request_limit` 或供應商後台的花費上限
+**注意**：前綴太短（目前的模型低於 512 token）不會被快取，也不會報錯；instructions 裡放時間戳、中途增減工具都會讓快取失效
 
 ---
 
 ## Claude Code 同款零件：Pydantic AI Harness
 
-[pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/) 是 Pydantic 官方的另一個套件，把 Claude Code 這類 coding agent 的零件做成一個個 capability，掛到 `Agent(capabilities=[...])` 就能用，等於用 pydantic-ai 組出一個簡化版 Claude Code。範例會在暫存目錄建一個迷你專案（有 `CLAUDE.md`、兩個 skill、埋了兩個 bug 的 `calc.py` 和測試檔），讓 agent 在裡面工作，跑完自動刪除。
+[pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/) 把 Claude Code 這類 coding agent 的零件做成 capability，掛到 `Agent(capabilities=[...])` 就能用。範例在暫存目錄建一個有 bug 的迷你專案，讓 agent 自己修好。
 
-參考 [claude_harness_demo.py](claude_harness_demo.py)（使用 Anthropic Claude Haiku，需要 `pip install "pydantic-ai-harness[coder,skills]"`）
+參考 [claude_harness_demo.py](claude_harness_demo.py)（使用 Anthropic Claude Haiku）
 
-**四個零件**：
+- **Coder**：讀寫檔案、grep、shell、子代理
+- **Skills**：讀 `SKILL.md`，模型一開始只看到名稱和描述，需要時才載入內文
+- **RepoContext**：自動把 `CLAUDE.md` / `AGENTS.md` 放進 instructions
+- **SystemReminders**：長任務中途用 `<system-reminder>` 重申規則
 
-**Coder**：提供 `read_file` / `write_file` / `edit_file` / `list_files` / `grep` / `shell` / `delegate_task`（子代理），本身由 FileSystem + Shell + RepoContext + SubAgents + 壓縮、快取等零件組成，也預設開啟 prompt caching
-
-**Skills**：讀 `SKILL.md`（跟 Claude Code skills 同一個 [agentskills.io](https://agentskills.io/specification) 標準）。模型一開始只看到每個 skill 的名稱和描述，需要時才用 `load_capability` 載入內文；不會自動搜尋 `.claude/skills`，要用 `Skills('.claude/skills')` 明確指定
-
-**RepoContext**：run 開始時自動讀 `CLAUDE.md` / `AGENTS.md` 放進 instructions；`expose_inventory_tool=True` 會多一個工具，列出 `.claude` 底下的 skills、agents、hooks（Coder 已內含 RepoContext）
-
-**SystemReminders**：照 Claude Code 的做法，用 `<system-reminder>` 標籤在長任務中途重申規則（例如 `Reminder('只能修改 calc.py', interval=3)`）。只放在每次請求的尾端，不寫進對話歷史、不打破快取；要用 `@agent.on_event(ReminderFiredEvent)` 才看得到它何時觸發
-
-**兩個主題**：
-
-**A. RepoContext + Skills（唯讀）**：不給 shell，問 agent 這個專案有哪些 coding-assistant 設定。實測它會呼叫 `inventory_agent_context()`，正確說出 CLAUDE.md 的規則和兩個 skill，且不載入 skill 內文
-
-**B. Coder + Skills + SystemReminders**：交代「`test_calc.py` 跑不過，請找出原因並修好，最後寫一份修正說明」。實測 agent 會自己讀檔、跑測試、用 `edit_file` 修好兩個 bug、再跑一次測試，並載入 `release-notes` skill 照格式寫說明；範例最後會自己重跑測試、確認測試檔沒被改，不只相信 agent 的說法。整個主題約 3～4 次請求，大部分輸入從快取讀回
-
-**Skill 描述要寫清楚「什麼時候用」**：實測描述寫成「撰寫修正說明時使用」，Haiku 會直接用自己的格式寫；改成「撰寫修正說明前，一定要先載入這個 skill」才穩定載入。模型只看得到描述，描述就是觸發條件
-
-**安全性**：Coder 的 shell 沒有指令白名單，務必讓它在暫存目錄或 sandbox（Modal / E2B）裡跑。`LocalWorkspace` 只把 `PATH`、`HOME`、`LANG` 傳給 shell，不會把 API Key 交給模型執行的指令；不要用 `env=os.environ`
+**注意**：skill 描述要寫清楚「什麼時候用」，因為模型只看得到描述；Coder 的 shell 沒有指令白名單，要在暫存目錄或 sandbox 裡跑
 
 ---
 
 ## Claude 專屬：Advisor 顧問模式（Haiku 做事、Opus 指點）
 
-便宜的模型當「執行者」負責查資料、算數、回覆，遇到關鍵判斷再請教更強的「顧問」模型。Anthropic 的 [advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)（beta）把這件事做在伺服器上：執行者呼叫一個叫 `advisor` 的工具，顧問讀完整段對話後給建議，同一次 API 請求內完成。
+便宜的模型負責做事，遇到關鍵判斷再請教更強的模型。Anthropic 的 [advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)（beta）在伺服器上完成這件事，同一次 API 請求內就拿到建議。範例算跨年的出貨日，Haiku 單獨會答錯，加了 Opus 顧問就答對。
 
-參考 [claude_advisor_demo.py](claude_advisor_demo.py)（執行者 Claude Haiku 5.5、顧問 Claude Opus 5.5；主題 B 另需 NVIDIA_API_KEY 與 pydantic-ai-harness）
-
-**情境**：出貨排程助理。合約寫「2026-12-15 下單，隔天起算第 20 個工作天出貨」，休假日、補班日要用 `get_company_calendar(year)` 查。陷阱是 20 個工作天會跨年，只查 2026 年就會漏掉 2027 年的休假日。標準答案由程式另外計算，用來判斷模型答對沒有
-
-**一行掛上顧問**：
+參考 [claude_advisor_demo.py](claude_advisor_demo.py)（執行者 Claude Haiku 5.5、顧問 Claude Opus 5.5；主題 B 另需 `NVIDIA_API_KEY`）
 
 ```python
 from pydantic_ai.capabilities import NativeTool
@@ -528,48 +328,10 @@ agent = Agent(
 )
 ```
 
-beta header（`advisor-tool-2026-03-01`）由 Pydantic AI 自動加上。顧問必須至少和執行者一樣強；Haiku 5.5 的顧問可以選 Opus、Sonnet 5.5 等模型
-
-**實測（主題 A，三種組合各跑一次）**：
-
-| 組合 | 回答 | usage.cost | 顧問費（自己換算） | 實際合計 |
-|------|------|-----------:|------------------:|---------:|
-| Haiku 單獨 | ❌ 2027-01-11 | $0.0004 | — | $0.0004 |
-| Haiku + Opus 顧問 | ✅ 2027-01-15 | $0.0017 | $0.0719 | $0.0736 |
-| Opus 單獨 | ✅ 2027-01-15 | $0.0228 | — | $0.0228 |
-
-- Haiku 單獨在探測和正式執行共 5 次都答錯：只查 2026 年，或查了 2027 年卻數錯日期
-- 加了顧問後，Haiku 一開始先請教顧問，接著說「The advisor says to also check 2027」才去查 2027 年，最後再請教一次確認答案
-- **顧問模式反而比直接用 Opus 貴**：顧問每次都會讀完整段對話再思考（兩次合計輸入約 7,500、輸出約 2,000 token，用 Opus 價格計費）。這種短任務直接用 Opus 比較划算；顧問適合長任務，例如大部分步驟很機械、只有少數關鍵判斷要很準的 coding agent
-
-**帳單要自己算**：
-
-顧問的 token 不會算進 `usage.input_tokens` / `output_tokens`，`usage.cost` 也不包含顧問費。原因是顧問用的是另一個模型的價格，Pydantic AI 刻意不把它併進執行者的帳。顧問用量放在 `usage.details` 的 `advisor_iterations`、`advisor_input_tokens`、`advisor_output_tokens`，範例用 genai-prices 以 Opus 價格換算。只看 `usage.cost` 會以為「加了顧問幾乎不花錢」
-
-**看不到建議內容**：
-
-Opus / Sonnet 5.x 當顧問時，回傳的是加密的 `advisor_redacted_result`，只有執行者在伺服器上讀得到，程式拿不到明文；Opus 4.8 這類舊款顧問才回傳明文 `advisor_result`。在 Pydantic AI 裡，顧問呼叫是 `NativeToolCallPart`、回傳是 `NativeToolReturnPart`（`tool_name='advisor'`），回傳有時會出現在下一個 `ModelResponse` 開頭，要用 `tool_call_id` 配對
-
-**Haiku 容易忘記問**：
-
-官方提到 Haiku 當執行者常常不呼叫顧問，所以 instructions 要寫清楚時機（官方建議：動手之前、交付之前、卡關時）。範例寫「開始查資料、計算之前，先呼叫 advisor 確認做法；回覆客戶之前，再呼叫一次確認答案」，實測每次都會呼叫兩次
-
-**控制花費**：
-
-- `max_tokens`：限制每次顧問的輸出，思考也算在內，最小 1024，官方建議從 2048 開始
-- `max_uses`：限制「單一請求」內的呼叫次數，不是整個 run，跨請求要自己控管
-- `caching='5m'`：快取顧問讀的對話。官方說大約呼叫 3 次才打平，2 次以下反而更貴
-
-**主題 B：本機 Advisor（跨供應商）**：
-
-[pydantic-ai-harness](https://pydantic.dev/docs/ai/harness/) 的 `Advisor('anthropic:claude-opus-5-5')` 會依執行者自動切換：執行者也是 Anthropic 就用原生 advisor tool，其他供應商（範例用 NVIDIA Nemotron）就改成一般的 `advisor(prompt)` 函式工具，裡面再用 Opus 跑一個獨立的 agent。其中一次實測，NVIDIA 第一次請教時寫的計畫只查 2026 年，顧問用明文回覆「行事曆要涵蓋 2027 年」，最後答對 2027-01-15。和原生模式的差異：
-
-- **顧問看得到什麼**：原生模式直接讀整段對話；本機模式只看到執行者寫的 `prompt`，`forward_history=True` 才會帶上完整對話
-- **建議內容**：原生模式是加密的；本機模式就是一般的工具回傳，看得到
-- **費用**：原生模式的 `usage.cost` 不含顧問費；本機模式的顧問是一般的 Opus 請求，費用會算進 `usage.cost`。實測 $0.046～$0.054，全部是顧問費，因為 NVIDIA 查無價格
-- **速度**：本機模式每次請教都多一次來回，NVIDIA 加顧問約 1 分鐘
-
-**注意**：沒掛顧問的 agent，instructions 裡不要提到 advisor。實測 NVIDIA 會到處找這個不存在的工具，重複呼叫行事曆好幾次。advisor tool 只能用在 Claude API 和 Claude Platform on AWS，Bedrock、Vertex、Foundry 不支援
+- **費用要自己算**：顧問的 token 不算進 `usage.cost`，要從 `usage.details` 的 `advisor_*` 換算
+- **不一定比較省**：顧問每次都讀完整段對話，短任務直接用 Opus 反而便宜；適合大部分步驟很機械、少數判斷要很準的長任務
+- **Haiku 容易忘記問**：instructions 要寫清楚什麼時候呼叫顧問
+- **跨供應商**：pydantic-ai-harness 的 `Advisor(...)` 讓其他供應商（範例用 NVIDIA）也能用 Claude 當顧問
 
 ---
 
@@ -577,142 +339,50 @@ Opus / Sonnet 5.x 當顧問時，回傳的是加密的 `advisor_redacted_result`
 
 ### 零成本測試
 
-展示如何使用 TestModel 和 FunctionModel 進行單元測試，完全不需要真實 API 調用。
+用 `agent.override(model=...)` 換成假模型，不呼叫真實 API 也能測試 agent 的流程。
 
-參考完整範例：[zero_cost_testing.py](zero_cost_testing.py)
-
-**三個核心測試場景：**
-
-#### 1. TestModel - 自動模擬工具調用
+參考 [zero_cost_testing.py](zero_cost_testing.py)
 
 ```python
 from pydantic_ai.models.test import TestModel
 
-# TestModel 會自動返回工具調用的 JSON 結果
-test_model = TestModel()
-with agent.override(model=test_model):
-    result = await agent.run('測試輸入', deps='玩家')
-    # 輸出: {"tool1":"結果1","tool2":"結果2"}
-
-    # 驗證工具註冊
-    tools = test_model.last_model_request_parameters.function_tools
-    print([t.name for t in tools])  # ['roll_dice', 'get_player_name', 'check_guess']
-
-# 自定義輸出
-custom_model = TestModel(custom_output_text="你贏了！🎉")
-with agent.override(model=custom_model):
-    result = await agent.run('測試')
-    # 輸出: 你贏了！🎉
-```
-
-#### 2. FunctionModel - 完全控制回應
-
-```python
-from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
-
-async def simulate_flow(messages, info):
-    # 第一次調用：模擬工具調用
-    if len(messages) == 1:
-        return ModelResponse(parts=[
-            ToolCallPart('get_player_name', {}),
-            ToolCallPart('roll_dice', {})
-        ])
-    # 第二次調用：基於工具結果回應
-    else:
-        return ModelResponse(parts=[
-            TextPart("骰子結果是 4！你猜對了！")
-        ])
-
-with agent.override(model=FunctionModel(simulate_flow)):
-    result = await agent.run('擲骰子')
-```
-
-#### 3. 批次測試 - 零成本效能展示
-
-```python
-# 並行測試 10 個案例
-test_cases = [("玩家1", "猜1"), ("玩家2", "猜2"), ...]
-
 with agent.override(model=TestModel()):
-    tasks = [agent.run(guess, deps=player) for player, guess in test_cases]
-    results = await asyncio.gather(*tasks)
-
+    result = await agent.run('擲骰子', deps='玩家')
 ```
 
-**測試優勢總結：**
-
-- **TestModel**：自動模擬工具調用 + 自定義輸出
-- **FunctionModel**：完全控制回應流程和工具調用
-- **並行測試**：
-- **零成本**：不消耗任何 API 額度
-- **可預測**：結果一致，適合 CI/CD
+- **TestModel**：自動呼叫所有工具並產生假輸出，`custom_output_text=` 可以指定回覆
+- **FunctionModel**：自己寫函式決定每一步要呼叫哪個工具、回什麼文字
+- **不花錢、結果一致**：可以用 `asyncio.gather` 並行跑大量案例，適合放進 CI
 
 ### 模型切換
 
 ```python
-# 字串格式：<provider>:<model>
-agent = Agent('openai:gpt-4o')
-# 注意：裸 openai: 前綴預設使用 Responses API；
-# 若要使用 Chat Completions，請改寫成 openai-chat:gpt-4o
-agent = Agent('anthropic:claude-sonnet-5-5')
-agent = Agent('google:gemini-3-flash-preview')
-agent = Agent('groq:llama-3.3-70b-versatile')
-agent = Agent('mistral:mistral-large-latest')
-agent = Agent('bedrock:us.anthropic.claude-haiku-5-5')
-
-# 明確實例化（更多控制）
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
-model = OpenAIChatModel('gpt-4o', provider=OpenAIProvider(api_key='...'))
-agent = Agent(model)
-
-# FallbackModel 自動切換
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.fallback import FallbackModel
-fallback = FallbackModel(
-    OpenAIChatModel('gpt-4o'),
-    AnthropicModel('claude-sonnet-5-5')
-)
-agent = Agent(fallback)
+from pydantic_ai.models.openai import OpenAIChatModel
+
+# 字串格式：<provider>:<model>
+agent = Agent('anthropic:claude-sonnet-5-5')
+agent = Agent('google:gemini-3-flash-preview')
+agent = Agent('openai:gpt-4o')  # Responses API；要用 Chat Completions 請寫 openai-chat:gpt-4o
+
+# FallbackModel：第一個模型失敗就換下一個
+agent = Agent(FallbackModel(OpenAIChatModel('gpt-4o'), AnthropicModel('claude-sonnet-5-5')))
 ```
-
-**開發優勢**：
-
-- **零測試成本**：TestModel 和 FunctionModel 不呼叫實際 API
-- **模型無關**：支援 OpenAI、Anthropic、Google、Groq、Mistral、Bedrock、HuggingFace 等
-- **測試隔離**：使用 `Agent.override()` 和 pytest fixture 管理測試環境
-- **訊息追蹤**：`capture_run_messages()` 記錄完整對話過程
 
 ---
 
 ## 品質驗證：評估框架（Pydantic Evals）
 
-單元測試問的是「給定輸入，程式有沒有回傳正確的輸出？」——確定性、非對即錯。但 LLM 是機率性的，回答品質往往是「程度」問題，沒辦法用 `assert ==` 一刀切。Pydantic Evals 就是為此而生：把「測試案例 + 評分標準」組織成資料集，對 AI 系統跑一輪實驗並產出評分報告。它和上面的零成本測試互補——TestModel 驗證「程式流程」對不對，Evals 驗證「回答品質」好不好。
+LLM 的回答品質常是程度問題，沒辦法用 `assert ==` 判斷。Pydantic Evals 把測試案例和評分標準整理成資料集，跑一輪後產出評分報告。TestModel 驗證流程對不對，Evals 驗證回答好不好。
 
 參考 [evals_demo.py](evals_demo.py)（使用 NVIDIA NIM）
 
-**核心做法**：
+- **Case / Dataset**：`Case(inputs=..., expected_output=...)` 組成 `Dataset`
+- **評估器**：`IsInstance` 檢查型別、自訂 `Evaluator` 做確定性檢查、`LLMJudge` 用 LLM 依 `rubric` 評主觀品質
+- **執行**：`dataset.evaluate_sync(task)`，再用 `report.print()` 印出報告
 
-**Case / Dataset**：用 `Case`（單一測試案例：`inputs`、`expected_output`、`metadata`）組成 `Dataset`（一整批案例），把測試集中管理
-
-**待評估的 Task**：被打分的對象就是一個普通的 pydantic-ai Agent；用 `async def answer_question(q)` 包起來交給 Evals 呼叫
-
-**三類評估器（Evaluator）互補**：
-
-- **IsInstance（內建）**：零成本的格式 / 型別檢查（輸出是不是 `str`）
-- **ContainsExpected（自訂）**：繼承 `Evaluator` 自己寫的零成本確定性檢查（輸出有沒有包含標準答案）
-- **LLMJudge**：用 LLM 當裁判，靠 `rubric` 評「切題、語氣」等主觀品質；`include_input=True` 讓裁判同時看到「問題」與「回答」
-
-**評估器的兩種層級**：資料集層級評估器對「每個」case 都跑；Case 層級評估器（`Case(..., evaluators=[...])`）只在該案例跑
-
-**為什麼開放題只能靠 LLMJudge**：事實題（如「台灣最高的山」）有標準答案，便宜的 `ContainsExpected` 就夠；開放題（如「寫一句歡迎詞」）沒有標準答案可比對，確定性檢查無能為力，只能用 LLMJudge 評主觀品質
-
-**跑實驗、出報告**：`dataset.evaluate_sync(task)` 對每個 case 執行 Task 再套用所有評估器，回傳的 report 用 `report.print()` 印出每個案例的輸入、輸出與各評估器分數；report 物件還可序列化存檔，或送進 Logfire 做視覺化與版本比較
-
-**會花幾次 LLM 呼叫**：每個 case 會打兩次 API——一次問 Agent 拿答案（Task）、一次給 LLMJudge 打分；`IsInstance`、`ContainsExpected` 是純程式檢查，不花 LLM。所以本範例一輪共 `3 case ×（1 Task + 1 Judge）= 6 次`。公式是「case 數 ×（1 + 用到幾個 LLM 評估器）」，疊越多 LLM 裁判、case 越多就越貴。
-
-> **安裝與裁判提醒**：`pydantic-evals` 需單獨安裝（已列入 `requirements.txt`）。
+**注意**：每個 LLMJudge 都會多打一次 API，case 和裁判越多就越貴；有標準答案的題目用程式檢查就夠了
 
 ---
 
@@ -748,40 +418,11 @@ agent = Agent(fallback)
 
 ## 重要限制
 
-### 成本與性能
+- 每次執行都要呼叫 LLM，成本隨用量增加，延遲通常 1-5 秒
+- 相同輸入可能產生不同輸出，決策過程不透明，除錯比較困難
+- 依賴第三方 AI 服務，受速率限制，難以保證 99.9% SLA
 
-- 每次執行都需要 LLM 調用，成本隨使用量增長
-- 延遲通常 1-5 秒，無法達到毫秒級回應
-- 建議使用快取（`@lru_cache`）和更便宜的模型（如 `gemini-3-flash-preview`）
-
-### 技術限制
-
-- 依賴第三方 AI 服務，難以保證 99.9% SLA
-- 相同輸入可能產生不同輸出
-- AI 決策過程不透明，除錯困難
-- 高流量場景成本激增，受 API 速率限制
-
-### 解決方案
-
-```python
-# 混合架構：簡單邏輯用傳統程式，複雜問題用 AI
-def smart_processing(input_data):
-    if is_simple_case(input_data):
-        return traditional_processing(input_data)  # 毫秒級
-    else:
-        return ai_agent.run(input_data)  # 秒級但更智能
-
-# 批量處理降低成本
-async def batch_process(inputs: list[str]):
-    results = await asyncio.gather(*[
-        agent.run(text) for text in inputs
-    ])
-    return results
-```
-
-### 核心原則
-
-**AI 是增強而非取代**：針對低頻但高價值的任務使用 AI，簡單問題用傳統程式處理。
+**AI 是增強而非取代**：簡單邏輯用傳統程式處理，AI 留給低頻但高價值的任務。
 
 ---
 
