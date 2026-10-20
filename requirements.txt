@@ -7,11 +7,18 @@ pydantic-ai>=2.55,<3
 # 評估框架範例（evals_demo.py）使用 Pydantic Evals，需單獨安裝（不隨 pydantic-ai 自動帶入）
 pydantic-evals>=2,<3
 
+# 迷你 Claude Code（mini_claude_code/mini_claude_code.py）直接使用 anthropic SDK，不經過 pydantic-ai；
+# pydantic-ai 已會帶入，列出以表明直接相依。以開發時實測的 1.13 為下限
+anthropic>=1.13
+
 # 讀取 .env 中的 API 金鑰
 python-dotenv>=1.0
 
 # 範例直接使用 BaseModel / Field（pydantic-ai 亦會帶入，列出以表明直接相依）
 pydantic>=2
+
+# 迷你 Claude Code 互動模式的輸入列（打 / 彈出指令選單、上下鍵歷史）；pydantic-ai 的 cli extra 已會帶入，列出以表明直接相依
+prompt_toolkit>=3
 
 # 串流範例（streaming_demo.py）直接使用 rich 即時渲染
 # （pydantic-ai 的 cli extra 已會帶入，列出以表明直接相依）

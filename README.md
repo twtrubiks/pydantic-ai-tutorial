@@ -52,7 +52,7 @@ cp .env.example .env
 
 | 變數 | 用途 | 取得位置 |
 |------|------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`claude_advisor_demo.py`、`tool_approval_demo.py`、`web_chat_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
+| `ANTHROPIC_API_KEY` | Anthropic Claude（`claude_cache_demo.py`、`claude_harness_demo.py`、`mini_claude_code/`、`claude_advisor_demo.py`、`tool_approval_demo.py`、`web_chat_demo.py`、`tools_demo_claude.py`、`error_handling_demo.py`） | <https://platform.claude.com/settings/keys> |
 | `GOOGLE_API_KEY` | Google Gemini（`tools_demo.py`、`gemini_thinking_demo.py`、`gemini_embedding_demo.py` 等） | <https://aistudio.google.com/app/apikey> |
 | `OPENROUTER_API_KEY` | OpenRouter（`tools_demo_openrouter.py`） | <https://openrouter.ai/keys> |
 | `NVIDIA_API_KEY` | NVIDIA NIM（`output_validator_demo.py`、`mcp_client_demo.py`、`streaming_demo.py`、`toolset_filter_demo.py`、`output_mode_demo.py`、`bank_support_agent_demo.py`、`message_history_demo.py`、`evals_demo.py`、`claude_advisor_demo.py` 主題 B） | <https://build.nvidia.com/> |
@@ -309,6 +309,23 @@ Embedding 把文字轉成向量，語意接近的句子向量也接近，是語�
 - **SystemReminders**：長任務中途用 `<system-reminder>` 重申規則
 
 **注意**：skill 描述要寫清楚「什麼時候用」，因為模型只看得到描述；Coder 的 shell 沒有指令白名單，要在暫存目錄或 sandbox 裡跑
+
+---
+
+## 不靠框架：用 anthropic SDK 手寫迷你 Claude Code
+
+上一節的 Coder 一行就能用，但看不到裡面怎麼跑。這個範例只用 `anthropic` SDK，把 coding agent 的核心迴圈、六個工具、prompt caching、compaction、工具核准、Skills、子代理與網路搜尋全部手寫一遍，是一個真的能在你的專案目錄裡工作的 CLI。
+
+參考 [mini_claude_code/](mini_claude_code/)（使用 Anthropic Claude Haiku），完整說明見資料夾裡的 [README](mini_claude_code/README.md)
+
+```bash
+python mini_claude_code/mini_claude_code.py   # 以目前目錄為工作目錄啟動互動模式，/help 看指令
+```
+
+- **核心迴圈**：呼叫模型 → 看 `stop_reason` → `tool_use` 就執行工具、接回 `tool_result` 再呼叫，直到 `end_turn`，從 `run_turn` 開始讀
+- **對照框架**：上一節 pydantic-ai 幫你做掉的事（`tool_use` / `tool_result` 配對、各種 `stop_reason`、快取斷點、對話歷史）在這裡都要自己寫
+
+**注意**：bash 工具沒有白名單，會在目前目錄執行任意指令；預設寫檔、改檔、shell 執行前都會先問，`--yolo` 跳過詢問
 
 ---
 
